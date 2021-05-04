@@ -5,3 +5,13 @@ I finally managed to piece together a curricula for learning how to implement de
 2. CoC from ATAPL
 3. CIC from A compact kernel for the calculus of inductive constructions
 4. CubicalTT from cubicalTT
+
+#### Running
+
+```
+$ ghci Main.hs
+ghci> :main examples/bool.rkt 
+file contents:
+(let Bool U
+   (Sum [true 1] [false 1]))
+```

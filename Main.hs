@@ -43,7 +43,7 @@ toExpSpecialForm tuple = do
         "λ" -> do 
           (x, body) <- tuple2f toPat toExp tail
           return $ Elam x body
-        "ap" -> do 
+        "$" -> do 
           (f, x) <- tuple2f toExp toExp tail
           return $ Eap f x
         "Π" -> do
@@ -66,7 +66,7 @@ toExpSpecialForm tuple = do
         -- c M ???
         -- "con" -> ECon <$> tuple2f atom  toExp tail
         "fun" -> Efun <$> tuplefor toChoice tail
-        "sum" -> Esum <$> tuplefor toChoice tail
+        "Sum" -> Esum <$> tuplefor toChoice tail
         "decl" -> do 
             (decl, body) <- tuple2f toDecl toExp tail
             return $ Edec decl body
