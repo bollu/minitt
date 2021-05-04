@@ -1,4 +1,5 @@
 module AST where
+import qualified Control.Monad as M
 import qualified Data.List as L
 
 type Error = String
@@ -21,7 +22,7 @@ errAtSpan :: Span -> String -> String
 errAtSpan (Span (Loc _ lline lcol) (Loc _ rline rcol)) err = 
     show lline  ++ ":" ++ show lcol ++ " - " ++ 
     show rline ++ ":" ++ show rcol ++ " " ++
-    show err
+    err
 
 data Delimiter = Round | Square | Flower deriving(Eq, Show)
 
@@ -95,6 +96,22 @@ tokenize l ('(':cs) =
 tokenize l (')':cs) = 
     let l' = locNextCol l; span = Span l l'
     in (Close span Round):tokenize l' cs
+
+tokenize l ('[':cs) = 
+    let l' =  locNextCol l; span = Span l l'
+    in (Open span Square):tokenize l' cs
+tokenize l (']':cs) = 
+    let l' = locNextCol l; span = Span l l'
+    in (Close span Square):tokenize l' cs
+
+tokenize l ('{':cs) = 
+    let l' =  locNextCol l; span = Span l l'
+    in (Open span Flower):tokenize l' cs
+tokenize l ('}':cs) = 
+    let l' = locNextCol l; span = Span l l'
+    in (Close span Flower):tokenize l' cs
+
+
 tokenize l cs = 
     let (lex, cs') = L.span (not . isSigil) cs
         l' = locNextCols (length lex) l
@@ -160,17 +177,47 @@ tuple :: Int -> AST -> Either Error [AST]
 tuple n (Atom span _) = 
   Left $ errAtSpan span $ "expected tuple of length " ++ show n ++ 
          ". found atom"
-tuple n (Tuple span _ xs) = 
+tuple n ast@(Tuple span _ xs) = 
  if length xs /= n 
  then Left $ errAtSpan span $ 
     "expected tuple of length " ++ show n ++
-    ". found tuple of length " ++ show (length xs)
+    ". found tuple of length " ++ show (length xs)  ++ 
+    " |" ++ astPretty ast ++ "|."
  else Right xs
-                
+
 tuple4 :: AST -> Either Error (AST, AST, AST, AST)
 tuple4 ast = do
     xs <- tuple 4 ast
     return (xs !! 0, xs !! 1, xs !! 2, xs !! 3)
+
+-- | functional version of tuple 2
+tuple2f :: (AST -> Either Error a0) 
+    -> (AST -> Either Error a1) 
+    -> AST -> Either Error (a0, a1)
+tuple2f f0 f1 ast = do
+    xs <- tuple 2 ast
+    a0 <- f0 (xs !! 0)
+    a1 <- f1 (xs !! 1)
+    return (a0, a1)
+
+-- | functional version of tuple 3
+tuple3f :: (AST -> Either Error a0) 
+    -> (AST -> Either Error a1) 
+    -> (AST -> Either Error a2) 
+    -> AST -> Either Error (a0, a1, a2)
+tuple3f f0 f1 f2 ast = do
+    xs <- tuple 2 ast
+    a0 <- f0 (xs !! 0)
+    a1 <- f1 (xs !! 1)
+    a2 <- f2 (xs !! 2)
+    return (a0, a1, a2)
+
+-- | create a list of tuple values
+tuplefor :: (AST -> Either Error a) -> AST -> Either Error [a]
+tuplefor f (Atom span _) =
+  Left $ errAtSpan span $ 
+    "expected tuple, found atom."
+tuplefor f (Tuple span _ xs) = M.forM xs f 
 
 atomOneOf :: [String] -> AST -> Either Error String
 atomOneOf _ (Tuple span _ xs) = 
@@ -184,4 +231,13 @@ atomOneOf expected (Atom span atom) =
                  L.intercalate ", " expected ++
                  "|. Found |" ++ show atom ++ "|"
 
+
+tupleatomtail :: AST -> Either Error (String, AST)
+tupleatomtail (Atom span _) = 
+  Left $ errAtSpan span $ "expected tuple, found atom."
+tupleatomtail (Tuple span delim (x:xs)) = do
+    atomx <- atom x
+    -- | move span
+    let span' = Span (spanr . tuplespan $ x) (spanr span)
+    return (atomx, Tuple span' delim xs)
 
