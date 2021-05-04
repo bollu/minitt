@@ -1,7 +1,9 @@
 module AST where
 import qualified Data.List as L
 
-data Loc = Loc { locix :: Int, locline :: Int, loccol :: Int } deriving(Eq)
+type Error = String
+data Loc = 
+  Loc { locix :: Int, locline :: Int, loccol :: Int } deriving(Eq)
 
 instance Show Loc where
   show (Loc ix line col) = "Loc(" ++ show line ++ ":" ++ show col ++ " " ++ show ix ++ ")"
@@ -15,7 +17,7 @@ data Span = Span { spanl :: Loc, spanr :: Loc } deriving(Eq)
 instance Show Span where
   show (Span l r) = "Span(" ++ show l ++ " " ++ show r ++ ")"
 
-errAtSpan :: Span -> String  -> String
+errAtSpan :: Span -> String -> String
 errAtSpan (Span (Loc _ lline lcol) (Loc _ rline rcol)) err = 
     show lline  ++ ":" ++ show lcol ++ " - " ++ 
     show rline ++ ":" ++ show rcol ++ " " ++
@@ -26,9 +28,16 @@ data Delimiter = Round | Square | Flower deriving(Eq, Show)
 data Token = Open Span Delimiter | Close Span Delimiter | Str Span String deriving(Show)
 
 -- The Char of a tuple carries what the open bracket looks like.
-data AST a = 
-    Tuple { tuplespan :: Span, tupledelimiter :: Delimiter, tuplevals :: [AST a] } 
-    | Atom { atomspan :: Span, atomval :: a } deriving (Show)
+data AST = 
+    Tuple { 
+      tuplespan :: Span,
+      tupledelimiter :: Delimiter,
+      tuplevals :: [AST]
+    } | 
+    Atom { 
+      atomspan :: Span,
+      atomval :: String
+    } deriving (Show)
 
 delimOpen :: Delimiter -> String
 delimOpen Round = "("
@@ -40,12 +49,12 @@ delimClose Square = "]"
 delimClose Flower = "}"
 
 
-astPretty :: AST String -> String
+astPretty :: AST -> String
 astPretty (Atom _ l) = l
 astPretty (Tuple _ delim ls) = 
   delimOpen delim ++ L.intercalate " " (map astPretty ls) ++ delimClose delim
 
-astSpan :: AST a -> Span
+astSpan :: AST-> Span
 astSpan (Tuple span _ _) = span
 astSpan (Atom span _) = span
 
@@ -92,15 +101,15 @@ tokenize l cs =
         span = Span l l'
     in (Str span lex):tokenize l' cs'
 
-tupleAppend :: AST a -> AST a -> AST a
+tupleAppend :: AST -> AST -> AST
 tupleAppend (Atom _ _) s = error $ "cannot push into atom"
 tupleAppend (Tuple span delim ss) s = Tuple (spanExtend span (astSpan s)) delim (ss ++ [s])
 
 -- | invariant: stack, top only contain `Tuple`s.
 doparse :: [Token] -- ^ stream of tokens
-  -> AST String -- ^ currently building AST
-  ->  [AST String] -- ^ stack of AST 
-  -> Either String (AST String) -- final AST
+  -> AST -- ^ currently building AST
+  ->  [AST] -- ^ stack of AST 
+  -> Either Error AST  -- final AST
 doparse [] cur [] = Right cur
 doparse [] cur (top:stack') =
   Left $ errAtLoc (spanl (astSpan top)) "unclosed open bracket."
@@ -121,8 +130,58 @@ doparse ((Str span str):ts) cur stack =
   doparse ts (tupleAppend cur (Atom span str)) stack -- append into tuple
 
 -- | parse a string
-parse :: String -> Either String (AST String)
+parse :: String -> Either Error AST
 parse s =
   let locBegin = Loc 0 1 1
       spanBegin = Span locBegin locBegin
   in doparse (tokenize locBegin s) (Tuple spanBegin Flower []) []
+
+
+
+at :: Int -> AST -> Either Error AST
+at ix (Atom span _) = 
+ Left $ errAtSpan span $ 
+   "expected tuple index " ++ show ix ++
+   ". Found atom. "
+at ix (Tuple span _ xs) = 
+  if length xs < ix
+  then Left $ errAtSpan span $ 
+    "expected tuple index " ++ show ix ++ 
+    ". Found tuple of smaller length: "  ++ show (length xs)
+  else return (xs !! ix)
+
+atom :: AST -> Either Error String
+atom (Tuple span _ xs) = 
+  Left $ errAtSpan span $
+    "expected atom, found tuple."
+atom (Atom span a) = return a
+
+tuple :: Int -> AST -> Either Error [AST]
+tuple n (Atom span _) = 
+  Left $ errAtSpan span $ "expected tuple of length " ++ show n ++ 
+         ". found atom"
+tuple n (Tuple span _ xs) = 
+ if length xs /= n 
+ then Left $ errAtSpan span $ 
+    "expected tuple of length " ++ show n ++
+    ". found tuple of length " ++ show (length xs)
+ else Right xs
+                
+tuple4 :: AST -> Either Error (AST, AST, AST, AST)
+tuple4 ast = do
+    xs <- tuple 4 ast
+    return (xs !! 0, xs !! 1, xs !! 2, xs !! 3)
+
+atomOneOf :: [String] -> AST -> Either Error String
+atomOneOf _ (Tuple span _ xs) = 
+  Left $ errAtSpan span $
+    "expected atom, found tuple."
+atomOneOf expected (Atom span atom) = 
+  case L.findIndex (== atom) expected of
+    Just _ -> return atom
+    Nothing -> Left $ errAtSpan span $
+                 "expected one of |" ++
+                 L.intercalate ", " expected ++
+                 "|. Found |" ++ show atom ++ "|"
+
+
