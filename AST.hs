@@ -206,7 +206,7 @@ tuple3f :: (AST -> Either Error a0)
     -> (AST -> Either Error a2) 
     -> AST -> Either Error (a0, a1, a2)
 tuple3f f0 f1 f2 ast = do
-    xs <- tuple 2 ast
+    xs <- tuple 3 ast
     a0 <- f0 (xs !! 0)
     a1 <- f1 (xs !! 1)
     a2 <- f2 (xs !! 2)
@@ -233,11 +233,15 @@ atomOneOf expected (Atom span atom) =
 
 
 tupleatomtail :: AST -> Either Error (String, AST)
-tupleatomtail (Atom span _) = 
-  Left $ errAtSpan span $ "expected tuple, found atom."
+tupleatomtail atom@(Atom span _) = 
+  Left $ errAtSpan span $ "expected tuple, found atom." ++
+            "|" ++ astPretty atom ++ "|"
 tupleatomtail (Tuple span delim (x:xs)) = do
     atomx <- atom x
     -- | move span
     let span' = Span (spanr . tuplespan $ x) (spanr span)
     return (atomx, Tuple span' delim xs)
+tupleatomtail tuple@(Tuple span delim []) = do
+  Left $ errAtSpan span $ "expected non-empty tuple, found empty tuple." ++
+            "|" ++ astPretty tuple ++ "|"
 
