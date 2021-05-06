@@ -2,7 +2,12 @@ import System.Environment
 import System.Exit
 import AST
 import Data.Either
--- Parse
+-- === Parse ===
+-- === Parse ===
+-- === Parse ===
+-- === Parse ===
+-- === Parse ===
+-- === Parse ===
 data Exp = 
     Elam Pat Exp 
   | Eident String
@@ -16,8 +21,8 @@ data Exp =
   | E0
   | E1
   | Econ String Exp
-  | Efun [Choice]
-  | Esum [Choice]
+  | Efun [Choice] -- fun s [defn of pattern match: fun (true -> h1 | false -> h2)
+  | Esum [Choice] -- Sum s [defn of data type: Sum (zero | succ nat)
   -- | local let?
   | Edec Decl Exp
   deriving(Eq, Ord, Show)
@@ -118,6 +123,7 @@ toChoice ast = tuple2f atom toExp ast
 toToplevel :: AST -> Either Error [Decl]
 toToplevel ast = tuplefor toDecl ast
 
+
 main :: IO ()
 main = do
   args <- getArgs
@@ -138,3 +144,67 @@ main = do
             Left failure -> print failure >> exitFailure
             Right d -> pure d
   putStrLn $ show decls
+
+-- === OpSem ===
+-- === OpSem ===
+-- === OpSem ===
+-- === OpSem ===
+-- === OpSem ===
+-- === OpSem ===
+
+-- Normalization: choosing good elements of equivalence class to
+-- make equality easier to check. Example: check arrays equivalence upto permutation.
+-- Solution: sort arrays. This turns equivalent arrays into identical ones. We want
+-- to check judgemental equality.
+-- https://www.youtube.com/watch?v=atKqqiXslyo
+-- beta rule: (λx.M)N = M[x := N] [->]
+-- beta rule: fst(M, N) = M (iota?) [->]
+-- beta rule: snd(M, N) = N (iota?) [->]
+-- case(x.M; y.N; LConstructor(O)) = M[x := O]: (iota?) [->]
+-- case(x.M; y.N; RConstructor(O)) = N[y := O]: (iota?) [->]
+--
+-- Get stuck; What do?
+--
+-- Also, eta rules!
+-- F = λx. F(x)
+-- P = <fst(P), snd(P)>
+-- M = 0 : 1 [all elements of type 1 are equal to 0]
+--
+-- We EXPAND terms. eta EXPANSION.
+--
+-- 1) Simplify using beta
+-- 2) Expand using eta [reification]
+
+-- 6.2: Values
+data Closure = Closure Pat Exp Rho | ClosureComposition Closure Name
+
+-- 6.2: Values
+data Val =
+  VLam Closure
+  | Vpair Val Val
+  | Vconstructor Name Val
+  | Vunit
+  | Vset
+  | Vpi Val Closure
+  | Vsigma Val Closure
+  | Vone
+  | Vfun SClos -- fun s [defn of pattern match: fun (true -> h1 | false -> h2)
+  | Vsum SClos -- Sum s [defn of data type: Sum (zero | succ nat)
+  | VNeutral Neut -- [k]
+  deriving Show
+
+-- 6.2: Values
+data Stuck = NeutralGen Int
+   | NeutralApp Neut Val
+   | NeutralFst Neut
+   | NeutralSnd Neut
+   | NeutralFun ChoiceClosure Neut
+  deriving Show
+
+-- 6.2: Values
+type ChoiceClosure = (Branch, Rho)
+
+-- 6.2: Values
+data Rho = RhoUnit | RhoAddBinding Rho Pat Val | RhoAddDecl Rho Decl
+
+

@@ -33,11 +33,11 @@ data AST =
     Tuple { 
       tuplespan :: Span,
       tupledelimiter :: Delimiter,
-      tuplevals :: [AST]
+      tupleget :: [AST]
     } | 
     Atom { 
       atomspan :: Span,
-      atomval :: String
+      atomget :: String
     } deriving (Show)
 
 delimOpen :: Delimiter -> String
