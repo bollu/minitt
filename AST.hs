@@ -31,12 +31,12 @@ data Token = Open Span Delimiter | Close Span Delimiter | Str Span String derivi
 -- The Char of a tuple carries what the open bracket looks like.
 data AST = 
     Tuple { 
-      tuplespan :: Span,
+      astspan :: Span,
       tupledelimiter :: Delimiter,
       tupleget :: [AST]
     } | 
     Atom { 
-      atomspan :: Span,
+      astspan :: Span,
       atomget :: String
     } deriving (Show)
 
@@ -137,7 +137,7 @@ doparse ((Close span delim):ts) cur stack =
   then case stack of  -- pop stack, and append cur into top, make top cur
             (top:stack') -> doparse ts (tupleAppend top cur) stack'
             [] -> Left $ errAtSpan span "too many close parens." 
-  else Left $ errAtLoc (spanl . tuplespan $ cur) "mismatched bracket (open) " ++ 
+  else Left $ errAtLoc (spanl . astspan $ cur) "mismatched bracket (open) " ++ 
               "'" ++ (delimOpen (tupledelimiter cur)) ++ "'" ++ 
               "; " ++ 
               errAtLoc (spanl span) "mismatched bracket (close) " ++
@@ -212,6 +212,9 @@ tuple3f f0 f1 f2 ast = do
     a2 <- f2 (xs !! 2)
     return (a0, a1, a2)
 
+astignore :: AST -> Either Error ()
+astignore _ = return ()
+
 -- | create a list of tuple values
 tuplefor :: (AST -> Either Error a) -> AST -> Either Error [a]
 tuplefor f (Atom span _) =
@@ -232,16 +235,8 @@ atomOneOf expected (Atom span atom) =
                  "|. Found |" ++ show atom ++ "|"
 
 
-tupleatomtail :: AST -> Either Error (String, AST)
-tupleatomtail atom@(Atom span _) = 
+tuplehd:: (AST -> Either Error a) -> AST -> Either Error a
+tuplehd f atom@(Atom span _) = 
   Left $ errAtSpan span $ "expected tuple, found atom." ++
             "|" ++ astPretty atom ++ "|"
-tupleatomtail (Tuple span delim (x:xs)) = do
-    atomx <- atom x
-    -- | move span
-    let span' = Span (spanr . tuplespan $ x) (spanr span)
-    return (atomx, Tuple span' delim xs)
-tupleatomtail tuple@(Tuple span delim []) = do
-  Left $ errAtSpan span $ "expected non-empty tuple, found empty tuple." ++
-            "|" ++ astPretty tuple ++ "|"
-
+tuplehd f (Tuple span delim (x:xs)) = f x

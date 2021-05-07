@@ -2,6 +2,8 @@
 -- normalization by evaluation.
 -- https://en.wikipedia.org/wiki/Normalisation_by_evaluation
 -- bidirectional type system: https://www.youtube.com/watch?v=utyBNDj7s2w
+-- https://github.com/bollu/koans/blob/master/nbe.hs
+-- ^ looks different from my implementation
 import System.Environment
 import System.Exit
 import AST
@@ -19,8 +21,17 @@ data Stx =
   | Stxmkpair Stx Stx
   | Stxfst Stx
   | Stxsnd Stx
-  | Stxdiamond -- inhabitant of ()
-  deriving(Eq, Ord, Show)
+  | Stxdiamond -- Lozenge symbol (C-k lz); inhabitant of ()
+  deriving(Eq, Ord)
+
+instance Show Stx where
+  show (Stxlam name body) = "(λ " ++ name  ++ "  " ++ show body ++ ")"
+  show (Stxident x) = x
+  show (Stxap f x) = "($ " ++ show f ++ " " ++ show x  ++ ")"
+  show (Stxmkpair l r) = "(, " ++ show l ++ " " ++ show r  ++ ")"
+  show (Stxfst p) = "(fst " ++ show p ++ ")"
+  show (Stxsnd p) = "(snd " ++ show p ++ ")"
+  show Stxdiamond = "◊"
 
 -- | type system
 data Type = Tyfn Type Type | Typair Type Type | Tyunit deriving(Eq, Ord, Show)
@@ -46,31 +57,35 @@ toStx :: AST -> Either Error Stx
 toStx (Atom span "◊") = Right $ Stxdiamond
 toStx (Atom span ident) = Right $ Stxident ident
 toStx tuple = do
-    (head, tail) <- tupleatomtail tuple
+    head <- tuplehd atom tuple
     case head of 
         "λ" -> do 
-          (x, body) <- tuple2f atom toStx tail
+          ((), x, body) <- tuple3f astignore atom toStx tuple
           return $ Stxlam x body
         "$" -> do 
-          (f, x) <- tuple2f toStx toStx tail
+          ((), f, x) <- tuple3f astignore toStx toStx tuple
           return $ Stxap f x
         "," -> do
-            (l, r) <- tuple2f toStx toStx tail
+            ((), l, r) <- tuple3f astignore toStx toStx tuple
             return $ Stxmkpair l r
-        "fst" -> Stxfst <$> toStx tail
-        "snd" -> Stxsnd <$> toStx tail
+        "fst" -> do 
+            ((), x) <- tuple2f astignore toStx tuple
+            return $ Stxfst x
+        "snd" -> do 
+            ((), x) <- tuple2f astignore toStx tuple
+            return $ Stxsnd x
         _ -> Left $ "unknown head: " ++ "|" ++ astPretty tuple ++ "|"
 
 toType :: AST -> Either Error Type
 toType (Atom span "1") = Right Tyunit
 toType tuple = do
-    (head, tail) <- tupleatomtail tuple
+    head <- tuplehd atom tuple
     case head of
         "*" -> do
-            (l, r) <- tuple2f toType toType tail
+            ((), l, r) <- tuple3f astignore toType toType tuple
             return $ Typair l r
         "→" -> do
-            (l, r) <- tuple2f toType toType tail
+            ((), l, r) <- tuple3f astignore toType toType tuple
             return $ Tyfn l r
         _ -> Left $ "unknown type head: " ++ "|" ++ astPretty tuple ++ "|"
 
@@ -112,8 +127,8 @@ main = do
           Right () -> do 
             putStrLn $ "  success ✓";
             let outstx = nbe ty stx 
-            putStrLn $ "  output: "
-            putStrLn $ " " ++ show outstx
+            putStr $ "  output: "
+            putStrLn $ show outstx
   return ()
 
 
@@ -126,6 +141,7 @@ stx2sem (Typair l r) p = Vpair (stx2sem l $ Stxfst p) (stx2sem r $ Stxsnd p)
 
 -- | type directed reification into syntax
 sem2stx :: Type -> Value -> Stx
+sem2stx Tyunit _ = Stxdiamond
 sem2stx (Typair tl tr) (Vpair l r) = 
   Stxmkpair (sem2stx tl l) (sem2stx tr r)
 -- | TODO: need fresh names
@@ -133,6 +149,7 @@ sem2stx (Tyfn i o) (Vlam f) =
     let fresh = "fresh_x"
     in Stxlam fresh (sem2stx o $ f (stx2sem i (Stxident fresh)))
 sem2stx _ (Vstx stx) = stx -- how do stuck terms make progress?
+sem2stx _ stx = error $ "unhandled term in sem2stx: |" ++ show stx ++ "|."
 
 
 -- | context used when building program denotation prior to NBE.
@@ -171,7 +188,7 @@ tyinfer ctx ap@(Stxap f x) = do
     Tyfn ti to -> do
         tycheck ctx x ti
         return to
-    _ -> Left $ "invalid type for |" ++ show ap ++ "|." ++ 
+    _ -> Left $ "invalid type for function |" ++ show f ++ "| in |" ++ show ap ++ "|." ++ 
                 "expected function type, found |" ++ show tf  ++ "|."
 tyinfer ctx (Stxfst pair) = do
   tpair <- tyinfer ctx pair
