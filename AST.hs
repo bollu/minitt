@@ -212,6 +212,20 @@ tuple3f f0 f1 f2 ast = do
     a2 <- f2 (xs !! 2)
     return (a0, a1, a2)
 
+-- | functional version of tuple 4
+tuple4f :: (AST -> Either Error a0) 
+    -> (AST -> Either Error a1) 
+    -> (AST -> Either Error a2) 
+    -> (AST -> Either Error a3) 
+    -> AST -> Either Error (a0, a1, a2, a3)
+tuple4f f0 f1 f2 f3 ast = do
+    xs <- tuple 4 ast
+    a0 <- f0 (xs !! 0)
+    a1 <- f1 (xs !! 1)
+    a2 <- f2 (xs !! 2)
+    a3 <- f3 (xs !! 3)
+    return (a0, a1, a2, a3)
+
 astignore :: AST -> Either Error ()
 astignore _ = return ()
 
@@ -240,3 +254,10 @@ tuplehd f atom@(Atom span _) =
   Left $ errAtSpan span $ "expected tuple, found atom." ++
             "|" ++ astPretty atom ++ "|"
 tuplehd f (Tuple span delim (x:xs)) = f x
+
+tupletail:: (AST -> Either Error a) -> AST -> Either Error [a]
+tupletail _ atom@(Atom span _) = 
+  Left $ errAtSpan span $ "expected tuple, found atom." ++
+            "|" ++ astPretty atom ++ "|"
+tupletail f (Tuple span delim (x:xs)) = do
+  M.forM xs f 

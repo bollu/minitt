@@ -8,6 +8,8 @@ import Data.Either
 -- === Parse ===
 -- === Parse ===
 -- === Parse ===
+type Name = String
+
 data Exp = 
     Elam Pat Exp 
   | Eident String
@@ -43,37 +45,45 @@ toExp ast = toExpSpecialForm ast
 -- into an expr
 toExpSpecialForm :: AST -> Either Error Exp
 toExpSpecialForm tuple = do
-    (head, tail) <- tupleatomtail tuple
+    head  <- tuplehd atom tuple
     case head of 
         "λ" -> do 
-          (x, body) <- tuple2f toPat toExp tail
+          ((), x, body) <- tuple3f astignore toPat toExp tuple
           return $ Elam x body
         "$" -> do 
-          (f, x) <- tuple2f toExp toExp tail
+          ((), f, x) <- tuple3f astignore toExp toExp tuple
           return $ Eap f x
         "Π" -> do
-            ((x, tyin), tyout) <- tuple2f (tuple2f toPat toExp) toExp tail
+            ((), (x, tyin), tyout) <- tuple3f astignore (tuple2f toPat toExp) toExp tuple
             return $ Epi x tyin tyout
         "→" -> do -- sugar
-            (tyin, tyout) <- tuple2f toExp toExp tail
+            ((), tyin, tyout) <- tuple3f astignore toExp toExp tuple
             return $ Epi Pblank tyin tyout
         -- "U" 
         "pair" -> do
-            (l, r) <- tuple2f toExp toExp tail
+            ((), l, r) <- tuple3f astignore toExp toExp tuple
             return $ Epair l r
-        "fst" -> Efst <$> toExp tail
-        "snd" -> Esnd <$> toExp tail
+        "fst" -> do 
+            ((), x) <- tuple2f astignore toExp tuple
+            return $ Efst x
+        "snd" -> do
+            ((), x) <- tuple2f astignore toExp tuple
+            return $ Esnd x
         "sigma" -> do
-            (x, ty, body) <- tuple3f toPat toExp toExp tail
+            ((), x, ty, body) <- tuple4f astignore toPat toExp toExp tuple
             return $ Esigma x ty body
         -- "0"
         -- "1" 
         -- c M ???
-        -- "con" -> ECon <$> tuple2f atom  toExp tail
-        "fun" -> Efun <$> tuplefor toChoice tail
-        "Sum" -> Esum <$> tuplefor toChoice tail
+        -- "con" -> ECon <$> tuple2f atom  toExp tuple
+        "fun" -> do 
+           cs <- tupletail toChoice tuple
+           return $ Efun cs
+        "Sum" -> do 
+           ss <- tupletail toChoice tuple
+           return $ Esum ss
         "decl" -> do 
-            (decl, body) <- tuple2f toDecl toExp tail
+            ((), decl, body) <- tuple3f astignore toDecl toExp tuple
             return $ Edec decl body
         _ -> Left $ "unknown head: " ++ "|" ++ astPretty tuple ++ "|"
   
@@ -176,7 +186,8 @@ main = do
 -- 2) Expand using eta [reification]
 
 -- 6.2: Values
-data Closure = Closure Pat Exp Rho | ClosureComposition Closure Name
+-- data Closure = Closure Pat Exp Rho | ClosureComposition Closure Name
+type Closure = Val -> Val
 
 -- 6.2: Values
 data Val =
@@ -188,23 +199,23 @@ data Val =
   | Vpi Val Closure
   | Vsigma Val Closure
   | Vone
-  | Vfun SClos -- fun s [defn of pattern match: fun (true -> h1 | false -> h2)
-  | Vsum SClos -- Sum s [defn of data type: Sum (zero | succ nat)
+  | Vfun -- fun s [defn of pattern match: fun (true -> h1 | false -> h2)
+  | Vsum -- Sum s [defn of data type: Sum (zero | succ nat)
   | VNeutral Neut -- [k]
-  deriving Show
+  -- deriving Show
 
 -- 6.2: Values
-data Stuck = NeutralGen Int
-   | NeutralApp Neut Val
+data Neut = NeutralGen Int
+   | NeutralApp  Val
    | NeutralFst Neut
    | NeutralSnd Neut
    | NeutralFun ChoiceClosure Neut
-  deriving Show
+  -- deriving Show
 
 -- 6.2: Values
-type ChoiceClosure = (Branch, Rho)
+type ChoiceClosure = Rho -- (Branch, Rho)
 
 -- 6.2: Values
 data Rho = RhoUnit | RhoAddBinding Rho Pat Val | RhoAddDecl Rho Decl
 
-
+type M a = Either a Name
