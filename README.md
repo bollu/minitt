@@ -7,8 +7,7 @@ I finally managed to piece together a curricula for learning how to implement de
 3. CIC from A compact kernel for the calculus of inductive constructions
 4. CubicalTT from cubicalTT
 5. Pfenning, constructive logic: http://www.cs.cmu.edu/~fp/courses/15317-f17/schedule.html
-
-- Arbitrary: [Checking dependent types with NBE](http://davidchristiansen.dk/tutorials/nbe/)
+6. [Checking dependent types with NBE, based on the little typer](http://davidchristiansen.dk/tutorials/nbe/)
 
 Reading on normalization by evaluation:
 
