@@ -6,31 +6,30 @@
 import System.Environment
 import System.Exit
 import AST
+import Data.List (intercalate)
 import Data.Maybe (fromJust)
 import Data.Monoid (All, getAll)
-import Control.Monad(forM_)
+import Control.Monad(forM_, forM)
+import Debug.Trace(trace)
 
 type Name = String
 
 -- | syntax
 data Stx = 
-    Stxlam Name Stx 
-  | Stxident Name
-  | Stxap Stx Stx
-  -- | Stxmkpair Stx Stx
-  -- | Stxfst Stx
-  -- | Stxsnd Stx
-  -- | Stxdiamond -- Lozenge symbol (C-k lz); inhabitant of ()
+    Stxlam Name Stx  -- λ x f x
+  | Stxlet [(Name, Stx)] Stx -- let xi := fooi in bar
+  | Stxident Name -- x
+  | Stxap Stx Stx -- (f x)
   deriving(Eq, Ord)
 
 instance Show Stx where
   show (Stxlam name body) = "(λ " ++ name  ++ "  " ++ show body ++ ")"
   show (Stxident x) = x
+  show (Stxlet namevals body) = 
+    "(let " ++ 
+       intercalate " " [n ++ " " ++ show v|(n, v)<-namevals] ++ 
+         " " ++ show body ++ ")"
   show (Stxap f x) = "($ " ++ show f ++ " " ++ show x  ++ ")"
-  -- show (Stxmkpair l r) = "(, " ++ show l ++ " " ++ show r  ++ ")"
-  -- show (Stxfst p) = "(fst " ++ show p ++ ")"
-  -- show (Stxsnd p) = "(snd " ++ show p ++ ")"
-  -- show Stxdiamond = "◊"
 
 -- | counter to generate fresh variables
 type FreshCount = Int
@@ -47,6 +46,14 @@ instance Show Value where
 
 -- | declaration
 data Decl = Decl Name Stx deriving (Eq, Ord, Show)
+
+withErr :: a -> Either a b -> Either a b
+withErr a (Left _) = Left a
+withErr _ (Right b) = Right b
+
+unless :: Bool -> String -> Either String ()
+unless True _ = Right ()
+unless False err = Left err
 
 toStx :: AST -> Either Error Stx
 -- toStx (Atom span "◊") = Right $ Stxdiamond
@@ -69,17 +76,22 @@ toStx tuple = do
         -- "snd" -> do 
         --     ((), x) <- tuple2f astignore toStx tuple
         --     return $ Stxsnd x
+        "let" -> do
+            -- let x1 v1 x2 v2 .. xn vn result
+            -- 1   --2-- --2-- .. --2-- 1
+            -- total: even
+            -- unless (even . length . tupleget $ tuple)
+            --        ("expected even number of arguments to let |" ++ astPretty ++ "|")
+            let n = length . tupleget $ tuple
+            nvs <- forM [1,3..(n-3)] $ \ix -> do
+                     -- | TODO: find good method to have good error messages!
+                     name <- atom (tupleget tuple !! ix)
+                     val <- toStx (tupleget tuple !! (ix+1))
+                     return (name, val)
+            body <- toStx . last . tupleget $ tuple
+            return $ Stxlet nvs body
         _ -> Left $ "unknown head: " ++ "|" ++ astPretty tuple ++ "|"
 
-
--- (foo <type> <body>)
-toDecl :: AST -> Either Error Decl
-toDecl tuple = do
-    (name, body) <- tuple2f atom toStx tuple
-    return $ Decl name body
-
-toToplevel :: AST -> Either Error [Decl]
-toToplevel ast = tuplefor toDecl ast
 
 main :: IO ()
 main = do
@@ -91,21 +103,18 @@ main = do
   putStrLn $"file contents:"
   putStrLn $ file
   putStrLn $ "parsing..."
-  ast <- case AST.parse file of
-           Left failure -> print failure >> exitFailure
-           Right success -> pure success
+  ast <- case AST.parse file >>= at 0 of
+           Left failure -> putStrLn failure >> exitFailure
+           Right success -> return success
   putStrLn $ astPretty ast
 
-  putStrLn $ "\nconvering to intermediate repr..."
-  decls <- case toToplevel ast of
-            Left failure -> print failure >> exitFailure
-            Right d -> pure d
-  putStrLn $ show decls
-  forM_ decls  $ \(Decl name stx) -> do
-        putStrLn $ "\nrunning |" ++ name  ++ "|..."
-        let outstx = nbe stx 
-        putStr $ "  output: "
-        putStrLn $ show outstx
+  putStrLn $ "\nconverting to intermediate repr..."
+  stx <- case toStx ast of
+            Left failure -> putStrLn failure >> exitFailure
+            Right  stx -> do print stx; pure stx
+  let outstx = nbe stx 
+  putStr $ "\n\n@output: "
+  putStrLn $ show outstx
   return ()
 
 
@@ -127,9 +136,10 @@ stx2sem env (Stxap f x) =
         Vlam f -> f (stx2sem env x)
         Vstx n2fstx -> Vstx $ \n -> 
             Stxap (n2fstx n) (sem2stx n (stx2sem env x))
+stx2sem env (Stxlet namevals body) = 
+    stx2sem ([(n, stx2sem env v) | (n,v) <-namevals] ++ env) body
 
 
 
 nbe :: Stx -> Stx
 nbe stx =  let ctx = [] in sem2stx 0 (stx2sem ctx stx)
-

@@ -168,9 +168,9 @@ at ix (Tuple span _ xs) =
   else return (xs !! ix)
 
 atom :: AST -> Either Error String
-atom (Tuple span _ xs) = 
+atom t@(Tuple span _ xs) = 
   Left $ errAtSpan span $
-    "expected atom, found tuple."
+    "expected atom, found tuple.\n" ++ astPretty t
 atom (Atom span a) = return a
 
 tuple :: Int -> AST -> Either Error [AST]
