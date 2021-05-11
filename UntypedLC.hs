@@ -122,7 +122,7 @@ main = do
 sem2stx :: FreshCount -> Value -> Stx
 sem2stx n (Vstx n2stx) = n2stx n
 sem2stx n (Vlam f) = 
- let var = "fresh" ++ show n
+ let var = "#" ++ show n
      semvar = Vstx $ \_ -> Stxident var
  in Stxlam var $ sem2stx (n+1) (f semvar)
 
