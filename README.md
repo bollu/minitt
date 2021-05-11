@@ -3,11 +3,13 @@ A simple type-theoretic language: Mini-TT
 I finally managed to piece together a curricula for learning how to implement dependently typed languages by recursive paper-chasing:
 
 1. [MiniTT paper](http://www.cse.chalmers.se/~bengt/papers/GKminiTT.pdf)
-2. CoC from ATAPL
-3. CIC from A compact kernel for the calculus of inductive constructions
-4. CubicalTT from cubicalTT
-5. [Pfenning, lecture notes handout on bidirectional typing (great)!](https://www.cs.cmu.edu/~fp/courses/15312-f04/handouts/15-bidirectional.pdf)
-6. [Checking dependent types with NBE, based on the little typer](http://davidchristiansen.dk/tutorials/nbe/)
+1. [Andrej Bauer: how to implement dependent type theory 1](http://math.andrej.com/2012/11/08/how-to-implement-dependent-type-theory-i/)
+1. [Tiark Rompf: minimal dependent types in javascript](https://tiarkrompf.github.io/notes/?/dependent-types/aside4)
+1. [Checking dependent types with NBE, based on the little typer](http://davidchristiansen.dk/tutorials/nbe/)
+1. CoC from ATAPL
+1. CIC from A compact kernel for the calculus of inductive constructions
+1. CubicalTT from cubicalTT
+1. [Pfenning, lecture notes handout on bidirectional typing (great)!](https://www.cs.cmu.edu/~fp/courses/15312-f04/handouts/15-bidirectional.pdf)
 
 Reading on normalization by evaluation:
 
