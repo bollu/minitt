@@ -22,6 +22,14 @@ Reading on bidirectional type checking:
 
 
 
+Reading on surface syntax issues:
+
+1. [Eliminating dependent pattern matching](https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/99.pdf)
+2. [The view from the left](http://strictlypositive.org/vfl.pdf)
+3. [Elimination with a motive](https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.1085.8468&rep=rep1&type=pdf#:~:text=An%20elimination%20rule%20with%20an,allow%20the%20corresponding%20recursive%20calls.)
+
+
+
 #### Running
 
 ```
