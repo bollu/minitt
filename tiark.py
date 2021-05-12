@@ -247,4 +247,8 @@ print("peano three:")
 printt(peano(threeChurch))
 
 # this chokes
-# plus = fun(ChurchT, lambda a: fun(ChurchT, lambda b: ChurchN(lambda N: lambda z: lambda s: return a(N)(b(N)(z)(s))(s))))
+plus = fun(ChurchT, lambda a: fun(ChurchT, lambda b: ChurchN(lambda N: lambda z: lambda s: a(N)(b(N)(z)(s))(s))))
+sixChurch = plus(threeChurch)(threeChurch)
+
+print("peano plus(three, three):")
+printt(peano(sixChurch))
