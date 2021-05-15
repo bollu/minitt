@@ -38,7 +38,7 @@ Reading on implementing tactics:
 - Implementing Tactics and Tacticals in a Higher-order Programming Language
 
 
-# Bidirectional type checking:
+# Bidirectional type checking by Pfenning
 
 To check if the rules of a typing judgement yield a type checking algorithm,
 we use Pfenning's recipe. First, some syntax. Given a typing rule `val : ty` I'll call the
@@ -67,7 +67,7 @@ START                    END
 > For typing rules with multiple premises we analyze the premises from left
 > to right. For each premise we first show that all inputs are **known** and
 > outputs are **free**. Then, we assume all outputs are **known** before checking
-> the next premise.  After the last premise has been checked we still haveto
+> the next premise.  After the last premise has been checked we still have to
 > show that the outputs of the conclusion are all known by now. As an example,
 > consider the rule for function application.
 
@@ -134,7 +134,10 @@ e1 => ti -> to; e2 <= ti;
   the type level.  `info(large val) = info(small val) + info(small ty)` is the
   rough heuristic in my mind.
 - Introduction forms (constructors) are generally in type checking mode, since one cannot synthesize types "out of nothing"
-  in general.
+  in general. For example, if we see `[]`, we can't synthesize a type because we don't know if it's a list of int/float/whatever.
+  if we see `Left 'a'`  we can't synthesize a type because we only know it's `Either Char ?` where the `?` is unknowable.
+  If we see a `\x -> ()` we can't synthesize a type because we only know the type is `? -> ()`. We don't know what type of `x`
+  is.
 - In summary: we will generally check
   constructors/products/lambdas/introduction, and infer
   destructors/projection/applications/elimination.
@@ -274,7 +277,6 @@ but we only know how to check the type of `(λx.x)`. Hence, we will need a type
 annotation `(λx.x : int -> int) $ 3`. This is generally okay, because programmers
 supposedly, according to Pfenning, tend to take such redexes and convert the LHS into a
 definition, which can be annotated with a type and commented and whatnot.
-
 
 
 #### Running
