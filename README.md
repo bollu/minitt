@@ -278,6 +278,19 @@ annotation `(λx.x : int -> int) $ 3`. This is generally okay, because programme
 supposedly, according to Pfenning, tend to take such redexes and convert the LHS into a
 definition, which can be annotated with a type and commented and whatnot.
 
+We add a rule to our type system on how to support annotations. This rule tells
+us that if `x` is annotated with `t`, then we can synthesize that `x` has type `t`
+provided that type checking `x` to have type `t` succeeds.
+The type checking rule `x <= t` can then trigger the type synthesis rule (`MEDIATE-CHECK-INFER`)
+to find `x => t` if necessary.
+
+
+```
+ x <= t
+---------------------[ANNOTATE]
+ annotate(x, t) => t
+```
+
 
 #### Running
 
