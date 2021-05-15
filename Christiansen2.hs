@@ -122,9 +122,12 @@ evalap (VClosure (CLOSURE env x body)) arg =
     eval ((x,arg):env) body
 evalap (VNeutral f) arg = 
   return $ VNeutral (NeutralAp f arg)
+
 fresh :: [Name] -> Name -> Name
-fresh [] x = x
-fresh (y:ys) x = if x == y then fresh ys (x <> "*") else fresh ys x
+fresh used x = 
+  case find (== x) used of
+    Just _ -> fresh used (x <> "*")
+    Nothing -> x
 
 readBack :: [Name] -> Val -> Either String Exp
 readBack names (VClosure (CLOSURE env x ebody)) = do
