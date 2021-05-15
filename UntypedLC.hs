@@ -9,7 +9,7 @@ import AST
 import Data.List (intercalate)
 import Data.Maybe (fromJust)
 import Data.Monoid (All, getAll)
-import Control.Monad(forM_, forM)
+import Control.Monad(forM_, forM, foldM)
 import Debug.Trace(trace)
 
 type Name = String
@@ -17,7 +17,6 @@ type Name = String
 -- | syntax
 data Stx = 
     Stxlam Name Stx  -- λ x f x
-  | Stxlet [(Name, Stx)] Stx -- let xi := fooi in bar
   | Stxident Name -- x
   | Stxap Stx Stx -- (f x)
   deriving(Eq, Ord)
@@ -25,10 +24,6 @@ data Stx =
 instance Show Stx where
   show (Stxlam name body) = "(λ " ++ name  ++ "  " ++ show body ++ ")"
   show (Stxident x) = x
-  show (Stxlet namevals body) = 
-    "(let " ++ 
-       intercalate " " [n ++ " " ++ show v|(n, v)<-namevals] ++ 
-         " " ++ show body ++ ")"
   show (Stxap f x) = "($ " ++ show f ++ " " ++ show x  ++ ")"
 
 -- | counter to generate fresh variables
@@ -43,78 +38,51 @@ instance Show Value where
   show (Vlam f) = "(sem:λ" ++ "<<code>>" ++ ")"
   show (Vstx stx) =  "(sem:stx " ++ show (stx 0) ++ ")"
 
+toExp :: AST -> Either Error Stx
+toExp (Atom span ident) = Right $ Stxident ident
+toExp tuple = do
+  head  <- tuplehd atom tuple
+  case head of 
+      "λ" -> do 
+        ((), x, body) <- tuple3f astignore atom toExp tuple
+        return $ Stxlam x body
+      "$" -> do 
+        ((), f, x) <- tuple3f astignore toExp toExp tuple
+        return $ Stxap f x
+      _ -> Left $ "unknown head |" ++ head ++ "| in " ++ "|" ++ astPretty tuple ++ "|"
 
--- | declaration
-data Decl = Decl Name Stx deriving (Eq, Ord, Show)
 
-withErr :: a -> Either a b -> Either a b
-withErr a (Left _) = Left a
-withErr _ (Right b) = Right b
+toDecl :: AST -> Either Error (Name, Stx)
+toDecl = tuple2f atom toExp
 
-unless :: Bool -> String -> Either String ()
-unless True _ = Right ()
-unless False err = Left err
-
-toStx :: AST -> Either Error Stx
--- toStx (Atom span "◊") = Right $ Stxdiamond
-toStx (Atom span ident) = Right $ Stxident ident
-toStx tuple = do
-    head <- tuplehd atom tuple
-    case head of 
-        "λ" -> do 
-          ((), x, body) <- tuple3f astignore atom toStx tuple
-          return $ Stxlam x body
-        "$" -> do 
-          ((), f, x) <- tuple3f astignore toStx toStx tuple
-          return $ Stxap f x
-        -- "," -> do
-        --     ((), l, r) <- tuple3f astignore toStx toStx tuple
-        --     return $ Stxmkpair l r
-        -- "fst" -> do 
-        --     ((), x) <- tuple2f astignore toStx tuple
-        --     return $ Stxfst x
-        -- "snd" -> do 
-        --     ((), x) <- tuple2f astignore toStx tuple
-        --     return $ Stxsnd x
-        "let" -> do
-            -- let x1 v1 x2 v2 .. xn vn result
-            -- 1   --2-- --2-- .. --2-- 1
-            -- total: even
-            -- unless (even . length . tupleget $ tuple)
-            --        ("expected even number of arguments to let |" ++ astPretty ++ "|")
-            let n = length . tupleget $ tuple
-            nvs <- forM [1,3..(n-3)] $ \ix -> do
-                     -- | TODO: find good method to have good error messages!
-                     name <- atom (tupleget tuple !! ix)
-                     val <- toStx (tupleget tuple !! (ix+1))
-                     return (name, val)
-            body <- toStx . last . tupleget $ tuple
-            return $ Stxlet nvs body
-        _ -> Left $ "unknown head: " ++ "|" ++ astPretty tuple ++ "|"
-
+foldM' :: (Monoid s, Monad m, Traversable t) => t a -> (s -> a -> m s) -> m s
+foldM' t f = foldM f mempty t
 
 main :: IO ()
 main = do
   args <- getArgs
   path <- case args of
            [path] -> pure path
-           _ -> (print "expected single file path to parse") >> exitFailure
+           _ -> (putStrLn "expected single file path to parse") >> exitFailure
   file <- readFile path
   putStrLn $"file contents:"
   putStrLn $ file
   putStrLn $ "parsing..."
-  ast <- case AST.parse file >>= at 0 of
+  ast <- case AST.parse file of
            Left failure -> putStrLn failure >> exitFailure
-           Right success -> return success
+           Right success -> pure success
   putStrLn $ astPretty ast
 
-  putStrLn $ "\nconverting to intermediate repr..."
-  stx <- case toStx ast of
+  putStrLn $ "convering to intermediate repr..."
+  decls <- case tuplefor toDecl ast of
             Left failure -> putStrLn failure >> exitFailure
-            Right  stx -> do print stx; pure stx
-  let outstx = nbe stx 
-  putStr $ "\n\n@output: "
-  putStrLn $ show outstx
+            Right d -> pure d
+
+  foldM' decls $ \env (name, stx) -> do
+     let v = stx2sem env  stx
+     let vstx = sem2stx 0 v
+     putStrLn $ name <> ":\n\t"  <> show vstx
+     return ((name,v):env)
   return ()
 
 
@@ -136,10 +104,7 @@ stx2sem env (Stxap f x) =
         Vlam f -> f (stx2sem env x)
         Vstx n2fstx -> Vstx $ \n -> 
             Stxap (n2fstx n) (sem2stx n (stx2sem env x))
-stx2sem env (Stxlet namevals body) = 
-    stx2sem ([(n, stx2sem env v) | (n,v) <-namevals] ++ env) body
 
 
-
-nbe :: Stx -> Stx
-nbe stx =  let ctx = [] in sem2stx 0 (stx2sem ctx stx)
+nbe :: [(Name, Value)] -> Stx -> Stx
+nbe env stx = sem2stx 0 (stx2sem env stx)
