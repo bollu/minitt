@@ -174,9 +174,9 @@ atom t@(Tuple span _ xs) =
 atom (Atom span a) = return a
 
 tuple :: Int -> AST -> Either Error [AST]
-tuple n (Atom span _) = 
+tuple n (Atom span atom) = 
   Left $ errAtSpan span $ "expected tuple of length " ++ show n ++ 
-         ". found atom"
+         ". found atom " ++ show atom
 tuple n ast@(Tuple span _ xs) = 
  if length xs /= n 
  then Left $ errAtSpan span $ 
@@ -225,6 +225,21 @@ tuple4f f0 f1 f2 f3 ast = do
     a2 <- f2 (xs !! 2)
     a3 <- f3 (xs !! 3)
     return (a0, a1, a2, a3)
+
+tuple5f :: (AST -> Either Error a0) 
+    -> (AST -> Either Error a1) 
+    -> (AST -> Either Error a2) 
+    -> (AST -> Either Error a3) 
+    -> (AST -> Either Error a4) 
+    -> AST -> Either Error (a0, a1, a2, a3, a4)
+tuple5f f0 f1 f2 f3 f4 ast = do
+    xs <- tuple 5 ast
+    a0 <- f0 (xs !! 0)
+    a1 <- f1 (xs !! 1)
+    a2 <- f2 (xs !! 2)
+    a3 <- f3 (xs !! 3)
+    a4 <- f4 (xs !! 4)
+    return (a0, a1, a2, a3, a4)
 
 astignore :: AST -> Either Error ()
 astignore _ = return ()
