@@ -1,15 +1,14 @@
 (zero-t 0)
-(add-one-t add1)
 (three 
-  (∈ nat ($ add1 ($ add1 ($ add1 0))))) 
-(threeNoType ($ add1 ($ add1 ($ add1 0)))) 
+  (∈ nat (+1 (+1 (+1 0))))) 
+(threeNoType (+1 (+1 (+1 0)))) 
 
 (add (∈ (→ nat (→ nat nat))
         (λ n (λ k (rec nat n 
                        k
-                       (λ pred (λ s ($ add1 s))))))))
+                       (λ pred (λ s (+1 s))))))))
 
-(add1-zero ($ add1 0))
+(add1-zero (+1 0))
 (zero+_ ($ add 0))
 
 (sixNoType ($ ($ add three) three))

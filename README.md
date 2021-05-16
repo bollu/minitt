@@ -132,7 +132,10 @@ e1 => ti -> to; e2 <= ti;
   "projections". Thus by "conservation of information".  since they are losing
   information at the value level, they maybe able to synthesize information at
   the type level.  `info(large val) = info(small val) + info(small ty)` is the
-  rough heuristic in my mind.
+  rough heuristic in my mind. For example, an identifier `x` can be seen as a projection/elimination
+  of the _environment_, and thus its type must be synthesized. Similarly, a function application `(f $ x)`
+  is an elimination of the arrow `→`. Its type can be synthesized by synthesizing a type for `f` to find the
+  output type. 
 - Introduction forms (constructors) are generally in type checking mode, since one cannot synthesize types "out of nothing"
   in general. For example, if we see `[]`, we can't synthesize a type because we don't know if it's a list of int/float/whatever.
   if we see `Left 'a'`  we can't synthesize a type because we only know it's `Either Char ?` where the `?` is unknowable.
