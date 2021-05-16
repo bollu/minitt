@@ -298,6 +298,11 @@ to find `x => t` if necessary.
 
 # NBE
 
+we need to define value representations of each _introduction form_ / _constructor_,
+because these are the values that can be built up. Therefore, we will *never get stuck*
+at a constructor, because we can *always* build a value from a constructor.
+
+
 We see that the neutral terms in NBE correspond only to _eliminators_. The intuition is that
 constructors are always "freely buildable", since they are the free fragment of the semantics.
 The only place where reduction/computation/crunching happens is at the eliminators. Thus,
