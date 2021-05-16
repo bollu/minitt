@@ -295,6 +295,24 @@ to find `x => t` if necessary.
 ```
 
 
+
+# NBE
+
+We see that the neutral terms in NBE correspond only to _eliminators_. The intuition is that
+constructors are always "freely buildable", since they are the free fragment of the semantics.
+The only place where reduction/computation/crunching happens is at the eliminators. Thus,
+it is only at the eliminators that we can get stuck. Hence, NBE will have neutral values
+for thing like (1) variables, which eliminate the context, (2) applications, which eliminate the
+arrow, (3) recursion schemes of naturals, because this eliminates the naturals, etc. Also, for all
+of these, the "syntactic fragment" of the neutral object (which recall holds on to both syntax and normal forms)
+will hold syntactic fragments of the thing we are eliminating, and semantic values  of the other arguments.
+For example, (1) neutral-applications (`Nap Neutral ValAndTy`) hold on to a
+syntactic description of the function, and a semantic `Val` of the argument (2)
+recursion scheme for naturals (`Nrec Type Neutral ValAndTy ValAndTy`) holds on
+to a syntactic description of the `nat` and a semantic `Val` of the other
+arguments `type`, `base`, `step`.
+
+
 #### Running
 
 ```
