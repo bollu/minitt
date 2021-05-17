@@ -228,9 +228,10 @@ main = do
   putStrLn $ "type checking and evaluating..."
   foldM1' decls $ \(tenv, venv) (name,exp) -> do
     putStrLn $ "- " <> name <> ":"
-    t <- case synth tenv exp of
-           Left failure -> putStrLn failure >> exitFailure
-           Right t -> pure t
+    -- t <- case synth tenv exp of
+    --        Left failure -> putStrLn failure >> exitFailure
+    --        Right t -> pure t
+    t <- pure $ error "undefined type"
     putStrLn $ "\t+type: " <> show t
     v <- case val venv exp of
              Left failure -> putStrLn failure >> exitFailure 
@@ -250,11 +251,6 @@ errTyMismatch (e, ety) expectedty =
   "to have type " <> show ety <> "|." <>
   "Expected type |" <> show expectedty <> "|."
 
-check :: [(Name, Type)] -> Exp -> Type -> Either String ()
-check = undefined
-
-synth :: [(Name, Type)] -> Exp -> Either String Type
-synth = undefined
 
 --- 6: NBE
 data Val = 
@@ -551,3 +547,18 @@ readbackNeutral ctx (Nindabsurd target
     etarget <- readbackNeutral ctx target
     emotive <- readbackVal ctx tmotive vmotive
     return $ Eindabsurd etarget emotive 
+
+
+-- 7.4: type checking.
+
+-- When examining types, looking for specific type constructors, the type
+-- checker matches against their values. This ensures that the type checker
+-- never forgets to normalize before checking, which could lead to types
+-- that contain unrealized computation not being properly matche
+
+
+-- | FML, do I need a monad transformer here.
+synth :: [(Name, Type)] -> Exp -> Either String [Exp]
+check :: [(Name, Type)] -> Exp -> Val -> Either String Exp
+synth = undefined
+check = undefined

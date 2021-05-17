@@ -300,6 +300,19 @@ to find `x => t` if necessary.
 ```
 
 
+# Bidirectional dependeng Type checking with elaboration
+
+> When examining types, looking for specific type constructors, the type
+> checker matches against their values. This ensures that the type checker
+> never forgets to normalize before checking, which could lead to types
+> that contain unrealized computation not being properly matche
+
+> For instance, the typing rules for `ind-Nat` might give rise to the type 
+> `((λ (k) Atom) zero)` for the base. Attempting to use that expression as the
+> type for `'sandwich` would be incorrect without first reducing it.
+> Using values, which cannot even represent redexes, removes the need to worry
+> about normalization prior to inspection.
+
 
 # NBE
 
@@ -327,6 +340,7 @@ arguments `type`, `base`, `step`.
 > neutral targets.
 
 I think every absurd is neutral because Absurd has no constructors.
+
 
 
 #### Running
