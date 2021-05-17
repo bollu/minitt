@@ -556,9 +556,30 @@ readbackNeutral ctx (Nindabsurd target
 -- never forgets to normalize before checking, which could lead to types
 -- that contain unrealized computation not being properly matche
 
-
 -- | FML, do I need a monad transformer here.
-synth :: [(Name, Type)] -> Exp -> Either String [Exp]
-check :: [(Name, Type)] -> Exp -> Val -> Either String Exp
-synth = undefined
+-- | will always return an annotated expression
+-- elaborated expr = expr + annotation.
+-- I believe we need to return this as just Exp, where we are guaranteed
+-- that Exp will be Eannotate. We can't return a tuple (Type, Exp)
+-- since check will call synth and synth will call check compositionally to 
+-- build new annotated ASTs.
+synth :: [(Name, Val)] -> Exp -> Either String Exp
+-- recall that Type = Val
+check :: [(Name, Val)] -> Exp -> Type -> Either String Exp
+synth ctx (Eannotate ty e) = do
+    ty' <- check ctx ty UNIV -- check that ty has type universe (is at the right level)
+    tyv <- val ctx ty' -- crunch what tout is
+    eout <- check ctx e tyv  -- use it to check what eout is, since we can only check AGAINST a normal form.
+    -- | why not read back tyv, instead of using un-normalized ty'?
+    return $ (Eannotate ty' eout)
+-- | why is univ synthesized? shouldn't it be checked, being a constructor? ;) 
+-- Univ : Univ
+synth ctx Euniv = return $ Eannotate Euniv Euniv
+-- | What does Esigma eliminate?
+synth ctx (Esigma x ta a2tb) = do 
+    ta' <- check ctx ta UNIV
+    tav <- val ctx ta'
+    a2tb' <- check ((x,tav):ctx) a2tb UNIV
+    return $ Eannotate Euniv (Esigma x ta' a2tb')
+
 check = undefined
