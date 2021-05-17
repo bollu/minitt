@@ -38,6 +38,11 @@ Reading on implementing tactics:
 - Implementing Tactics and Tacticals in a Higher-order Programming Language
 
 
+Reading on future things of interest:
+
+- [Pi Sigma: Dependent types without the sugar](https://www.andres-loeh.de/PiSigma/PiSigma.pdf)
+
+
 # Bidirectional type checking by Pfenning
 
 To check if the rules of a typing judgement yield a type checking algorithm,
@@ -227,7 +232,7 @@ x <= t
 ----------
 Γ⊢right(x) <= s + t
 ```
-```
+
 For `case` analysis, we choose to do type checking so that we don't
 need to compute least upper bounds. If we are willing to compute LUBs,
 we would have inferred the type of a `case`. In this version of the `case` type
@@ -316,6 +321,12 @@ syntactic description of the function, and a semantic `Val` of the argument (2)
 recursion scheme for naturals (`Nrec Type Neutral ValAndTy ValAndTy`) holds on
 to a syntactic description of the `nat` and a semantic `Val` of the other
 arguments `type`, `base`, `step`.
+
+
+> Because every Absurd is neutral, do-ind-Absurd has only cases for
+> neutral targets.
+
+I think every absurd is neutral because Absurd has no constructors.
 
 
 #### Running
