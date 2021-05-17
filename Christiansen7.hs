@@ -43,7 +43,7 @@ type Name = String
 --   then (replace target mot base)
 --   is a (mot to).
 --  
--- Absurd:
+-- Absurd: / Void
 --   Absurd is a type.
 --   Every expression of type Absurd is neutral, and all
 --   of them are the same.
@@ -59,6 +59,17 @@ type Name = String
 --   it tells us why we are eliminating the nat, and what we want to build next
 --   after consuming the nat. So it tells us *why* we are eliminating the nat.
 --   Motive ~= dependent return type.
+--   Sole (◊): Trivial (Unit)
+--
+--
+--   Eq/Same:
+--     Eq A from to :: Univ;  witnesses  equality between (from:A) and (to:A).
+--     SAME is the sole inhabitant of Eq.
+--
+--   Quote/Atom:
+--     (Quote x) is of type ATOM.
+--     ATOMs are equal if their quoted values are equal.
+--    
 
 -- Don't call stuff "scrutinee", call stuff "motive"! 
 data Exp = 
@@ -247,11 +258,11 @@ synth = undefined
 
 --- 6: NBE
 data Val = 
+    NAT |
     PI Val Closure | 
     LAM Closure |
     SIGMA Val Closure |
     PAIR Type Type |
-    NAT |
     ZERO |
     ADD1 Val |
     EQ Type Val Val | -- Eq type from to
@@ -443,6 +454,7 @@ fresh used x =
     Nothing -> x
 
 readbackVal :: [(Name, Type)] -> Type -> Val -> Either String Exp
+-- | NAT
 readbackVal ctx NAT ZERO = return E0
 readbackVal ctx NAT (ADD1 n) = do
     en <- readbackVal ctx NAT n
@@ -466,6 +478,22 @@ readbackVal ctx (SIGMA ta a2tb) p = do
     ecar <- readbackVal ctx ta car
     ecdr <- readbackVal ctx tb cdr
     return $ Econs ecar ecdr
+-- | type-directed: sole inhabitant of TRIVIAL is SOLE
+readbackVal ctx TRIVIAL _ = return $ Esole
+-- | TODO: absurd can only be neutral (why?)
+readbackVal ctx ABSURD (NEU ABSURD nv) = do 
+    readbackNeutral ctx nv
+readbackVal ctx (EQ tA from to) (SAME) = return Esame
+readbackVal ctx ATOM (QUOTE x) = return $ Equote x
+readbackVal ctx UNIV NAT = return Enat
+readbackVal ctx UNIV ATOM = return Eatom
+readbackVal ctx UNIV TRIVIAL = return Etrivial
+readbackVal ctx UNIV ABSURD = return Eabsurd
+readbackVal ctx UNIV (EQ tA from to) = do
+    etA <- readbackVal ctx UNIV tA
+    efrom <- readbackVal ctx tA from
+    eto   <- readbackVal ctx tA to
+    return $ Eeq etA efrom eto
 
 readbackNeutral :: [(Name, Type)] -> Neutral -> Either String Exp
 readbackNeutral = undefined
