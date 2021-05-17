@@ -88,7 +88,7 @@ data Exp =
   | Esame 
   | Ereplace Exp Exp Exp  -- (replace <target> <motive> <base>)
   | Etrivial -- type ~= Unit
-  | Esole -- sole inhabitant of trivial ~= ◊=sole : Unit=Trivial
+  | Esole -- sole inhabitant of trivial ~= ◊=sole : Unit=Trivial 
   | Eabsurd -- empty type / void
   | Eindabsurd Exp Exp  -- (ind-absurd <target> <motive>)
   | Eatom -- ? What is Atom? 
@@ -290,7 +290,8 @@ closureArgumentName (ClosureShallow name _) = name
 closureArgumentName (ClosureDeep _ name _) = name
 
 instance Show Closure where
-  show (ClosureShallow arg _) = "ClosureShallow(" <> show arg <> " " <> "<<code>>)"
+  show (ClosureShallow arg _) = 
+    "ClosureShallow(" <> show arg <> " " <> "<<code>>)"
   show (ClosureDeep env arg body) = 
     "ClosureDeep(" <> show env <> " " <> show arg <> " " <> show body <> ")"
 
@@ -303,6 +304,7 @@ data Neutral =
   | Ncar Neutral
   | Ncdr Neutral
   | Nindnat Neutral TyAndVal TyAndVal TyAndVal -- target motive base step
+  -- | what does replace eliminate? EQ?
   | Nreplace Neutral TyAndVal TyAndVal -- target motive base 
   | Nindabsurd Neutral TyAndVal -- target motive 
   deriving(Show)
@@ -446,7 +448,6 @@ doIndNat target@(NEU NAT neutv) motive base step = do
 
 
 -- 7.3.3 READING BACK
-
 fresh :: [Name] -> Name -> Name
 fresh used x = 
   case find (== x) used of
@@ -494,6 +495,59 @@ readbackVal ctx UNIV (EQ tA from to) = do
     efrom <- readbackVal ctx tA from
     eto   <- readbackVal ctx tA to
     return $ Eeq etA efrom eto
+readbackVal ctx UNIV (SIGMA ta a2tb) = do
+    eta <- readbackVal ctx UNIV ta
+    let aident = fresh (map fst ctx) (closureArgumentName a2tb)
+    let aval = NEU ta (Nvar aident)
+    tb <- valOfClosure a2tb aval
+    etb <- readbackVal ((aident,ta):ctx) UNIV tb
+    return $ Esigma aident eta etb
+-- | exactly the same as sigma.
+readbackVal ctx UNIV (PI ta a2tb) = do
+    eta <- readbackVal ctx UNIV ta
+    let aident = fresh (map fst ctx) (closureArgumentName a2tb)
+    let aval = NEU ta (Nvar aident)
+    tb <- valOfClosure a2tb aval
+    etb <- readbackVal ((aident,ta):ctx) UNIV tb
+    return $ Epi aident eta etb
+readbackVal ctx t1 (NEU t2 ne) = readbackNeutral ctx ne
+-- | Inconsistent theory? x(
+-- How to exhibit inconsistence given Univ: Univ?
+readbackVal ctx UNIV UNIV = return $ Euniv
 
+-- | Read back a neutral expression as syntax.
+-- | users are:
+--     readbackVal Absurd
 readbackNeutral :: [(Name, Type)] -> Neutral -> Either String Exp
-readbackNeutral = undefined
+readbackNeutral ctx (Nvar x) = return $ Eident x
+readbackNeutral ctx (Nap nf (TyAndVal nxty nx)) = do
+  ef <- readbackNeutral ctx nf
+  ex <- readbackVal ctx nxty nx
+  return $ Eap ef ex
+readbackNeutral ctx (Ncar nv) = do
+    ev <- readbackNeutral ctx nv
+    return $ Ecar ev
+readbackNeutral ctx (Ncdr nv) = do
+    ev <- readbackNeutral ctx nv
+    return $ Ecdr ev
+readbackNeutral ctx (Nindnat target
+                    (TyAndVal tmotive vmotive)
+                    (TyAndVal tbase vbase)
+                    (TyAndVal tstep vstep)) = do
+    etarget <- readbackNeutral ctx target
+    emotive <- readbackVal ctx tmotive vmotive
+    ebase <- readbackVal ctx tbase vbase
+    estep <- readbackVal ctx tstep vstep
+    return $ Eindnat etarget emotive ebase estep 
+readbackNeutral ctx (Nreplace target
+                    (TyAndVal tmotive vmotive)
+                    (TyAndVal tbase vbase)) = do
+    etarget <- readbackNeutral ctx target
+    emotive <- readbackVal ctx tmotive vmotive
+    ebase <- readbackVal ctx tbase vbase
+    return $ Ereplace etarget emotive ebase 
+readbackNeutral ctx (Nindabsurd target
+                    (TyAndVal tmotive vmotive)) = do
+    etarget <- readbackNeutral ctx target
+    emotive <- readbackVal ctx tmotive vmotive
+    return $ Eindabsurd etarget emotive 
