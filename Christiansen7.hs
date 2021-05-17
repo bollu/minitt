@@ -12,6 +12,8 @@ import Control.Monad(foldM)
 
 type Name = String
 
+-- TODO: HOW TO PROVE GALOIS CORRESPONDENCE BETWEEN STX AND SEM?
+
 -- data Type = Tnat | Tarrow Type Type deriving(Eq, Ord) 
 
 -- Value: 
@@ -223,7 +225,7 @@ main = do
              Left failure -> putStrLn failure >> exitFailure 
              Right v -> pure v
     putStrLn $ "\t+evaluated. reading back..."
-    exp' <- case  readback [] t v of
+    exp' <- case  readbackVal [] t v of
              Left failure -> putStrLn failure >> exitFailure 
              Right v -> pure v
     putStrLn $ "\t+readback: " <> show exp'
@@ -271,6 +273,11 @@ data Closure =
     ClosureShallow Name (Val -> Either String Val) | 
     ClosureDeep [(Name, Val)] Name Exp 
 
+-- for a closure (ρ, \x. e) return x
+closureArgumentName  :: Closure -> Name
+closureArgumentName (ClosureShallow name _) = name
+closureArgumentName (ClosureDeep _ name _) = name
+
 instance Show Closure where
   show (ClosureShallow arg _) = "ClosureShallow(" <> show arg <> " " <> "<<code>>)"
   show (ClosureDeep env arg body) = 
@@ -279,7 +286,8 @@ instance Show Closure where
    
 data TyAndVal = TyAndVal Type Val deriving(Show)
 --- | The thing at the "to be reduced" position is stuck
-data Neutral = Nvar Name 
+data Neutral = 
+    Nvar Name 
   | Nap Neutral TyAndVal
   | Ncar Neutral
   | Ncdr Neutral
@@ -426,11 +434,38 @@ doIndNat target@(NEU NAT neutv) motive base step = do
     return $ NEU retty $ Nindnat neutv motive' base' step'
 
 
+-- 7.3.3 READING BACK
+
 fresh :: [Name] -> Name -> Name
 fresh used x = 
   case find (== x) used of
     Just _ -> fresh used (x <> "*")
     Nothing -> x
 
-readback :: [String] -> Type -> Val -> Either String Exp
-readback = undefined
+readbackVal :: [(Name, Type)] -> Type -> Val -> Either String Exp
+readbackVal ctx NAT ZERO = return E0
+readbackVal ctx NAT (ADD1 n) = do
+    en <- readbackVal ctx NAT n
+    return $ Eadd1 en
+readbackVal ctx (PI ta a2tb) f = do
+    -- | get closure argument name
+    let aident = fresh (map fst ctx) (closureArgumentName a2tb)
+    let aval = NEU ta (Nvar aident)
+    -- | notice how data is propagated at both value and type level
+    -- AT THE SAME TIME!
+    tb <- valOfClosure a2tb aval
+    fout <- doAp f aval
+    expr_fout <- readbackVal ((aident,ta):ctx) tb fout
+    return $ Elam aident expr_fout
+readbackVal ctx (SIGMA ta a2tb) p = do
+    -- | get closure argument name
+    car <- doCar p
+    cdr <- doCdr p
+    tb <- valOfClosure a2tb car
+
+    ecar <- readbackVal ctx ta car
+    ecdr <- readbackVal ctx tb cdr
+    return $ Econs ecar ecdr
+
+readbackNeutral :: [(Name, Type)] -> Neutral -> Either String Exp
+readbackNeutral = undefined
