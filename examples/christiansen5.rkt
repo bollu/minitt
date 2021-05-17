@@ -15,3 +15,6 @@
 
 (six (∈ nat
         ($ ($ add three) three)))
+
+(id (∈ [→ nat nat] (λ x x)))
+(ap-id-behind-lam (∈ [→ nat nat] (λ x ($ id x))))
