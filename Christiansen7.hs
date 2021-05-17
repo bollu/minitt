@@ -14,6 +14,50 @@ type Name = String
 
 -- data Type = Tnat | Tarrow Type Type deriving(Eq, Ord) 
 
+-- Value: 
+--   An expression with a constructor at the top is called as a value.
+--   Not every value is in normal form. This is because the
+--   arguments to a constructor need not be normal. Each
+--   expression has only one normal form, but it is sometimes
+--   possible to write it as a value in more than one way.
+--   (add (+ (addi zero) (addi one))) is a value, but is NOT a normal form.
+-- Atom:
+--   A tick mark directly followed by one or more letters or hyphens is an Atom.
+--   Two expressions are the same Atom if their values are tick marks followed
+--   by identical letters and hyphens.
+--   Atom is a type.
+-- Neutral Expressions:
+--   Neutral expressions that are written identically are the same, no matter
+--   their type.
+-- Pair:
+--   Pair is a type.
+--   Two cons-expressions are the same (Pair A D) if their cars are the same A and
+--   their cdrs are the same D, where A and D stand for any type.
+--
+-- Replace:
+--   If target is an (= X from to),
+--   mot is an (→ X U),
+--   and base isa (mot from)
+--   then (replace target mot base)
+--   is a (mot to).
+--  
+-- Absurd:
+--   Absurd is a type.
+--   Every expression of type Absurd is neutral, and all
+--   of them are the same.
+--   The expression (ind-absurd target mot) is mot if 
+--   target is an Absurd and mot is a U
+-- Ind-Nat and Motive:
+--   the extra argument to ind-nat is called as the motive, and is any (→ Nat U)
+--   An ind-Nat-expression’s type is the motive applied to the target Nat.
+--   If target is a Nat, mot is a (→ Nat U), base is a (mot zero), 
+--   step is a (Π (nprev Nat) (→ (mot nprev) (mot (add1 nprev)))), then
+--   (ind-nat target mot base step) is is a (mot target).
+--   The motive explains *why* the target is to be eliminated. Intuitively,
+--   it tells us why we are eliminating the nat, and what we want to build next
+--   after consuming the nat. So it tells us *why* we are eliminating the nat.
+--   Motive ~= dependent return type.
+
 -- Don't call stuff "scrutinee", call stuff "motive"! 
 data Exp = 
     Elam Name Exp  -- (λ f x)
@@ -30,9 +74,9 @@ data Exp =
   | Eeq Exp Exp Exp -- (= ty a b)
   | Esame 
   | Ereplace Exp Exp Exp  -- (replace <target> <motive> <base>)
-  | Etrivial
-  | Esole
-  | Eabsurd
+  | Etrivial -- type ~= Unit
+  | Esole -- sole inhabitant of trivial ~= ◊=sole : Unit=Trivial
+  | Eabsurd -- empty type / void
   | Eindabsurd Exp Exp  -- (ind-absurd <target> <motive>)
   | Eatom -- ? What is Atom? 
   | Equote Exp -- ' id
@@ -96,10 +140,6 @@ alphaEquivGo (Econs op args) (Econs op' args') _ _ n =
 
 -- | This, together with read-back-norm, implements the η law for Absurd.
 alphaEquivGo (Eannotate t Eabsurd) (Eannotate t' Eabsurd) _ _ n = (True, n)
-
--- | WTF is cons
-alphaEquivGo (Econs x xs) (Econs x' xs') = error $ "unimplement α for cons"
-
 
 alphaEquivGo e e' _ _ n = (expIsKeyword e && e == e', n)
 
@@ -208,7 +248,7 @@ data Val =
     PI Val Closure | 
     LAM Closure |
     SIGMA Val Closure |
-    PAIR Val Val |
+    PAIR Type Type |
     NAT |
     ZERO |
     ADD1 Val |
@@ -220,7 +260,7 @@ data Val =
     ATOM |
     QUOTE Exp | -- I really don't know what symbol? is
     UNIV |
-    NEU Val Neutral -- NEU type neutral data
+    NEU Type Neutral -- NEU type neutral data
     deriving(Show)
 
 type Type = Val
@@ -228,7 +268,7 @@ type Type = Val
 -- | the embedding is shallow because it's used by shallow people in a hurry
 -- who don't want to deal with binders!
 data Closure = 
-    ClosureShallow Name (Val -> Val) | 
+    ClosureShallow Name (Val -> Either String Val) | 
     ClosureDeep [(Name, Val)] Name Exp 
 
 instance Show Closure where
@@ -237,15 +277,15 @@ instance Show Closure where
     "ClosureDeep(" <> show env <> " " <> show arg <> " " <> show body <> ")"
 
    
-data ValAndTy = ValAndTy Val Type deriving(Show)
+data TyAndVal = TyAndVal Type Val deriving(Show)
 --- | The thing at the "to be reduced" position is stuck
 data Neutral = Nvar Name 
-  | Nap Neutral ValAndTy
+  | Nap Neutral TyAndVal
   | Ncar Neutral
   | Ncdr Neutral
-  | Nindnat Neutral ValAndTy ValAndTy ValAndTy -- target motive base step
-  | Nreplace Neutral ValAndTy -- target motive base 
-  | Nindabsurd Neutral ValAndTy -- target motive 
+  | Nindnat Neutral TyAndVal TyAndVal TyAndVal -- target motive base step
+  | Nreplace Neutral TyAndVal TyAndVal -- target motive base 
+  | Nindabsurd Neutral TyAndVal -- target motive 
   deriving(Show)
 
 data Ctx = CtxEmpty | CtxDef Name Type Val Ctx | CtxBind Name Type Ctx
@@ -263,7 +303,7 @@ extendCtx ctx name ty = CtxBind name ty  ctx
 -- 7.3.1
 -- | evaluate closure, instantiating bound variable with v
 valOfClosure :: Closure -> Val -> Either String Val
-valOfClosure (ClosureShallow x f) v = return $ f v
+valOfClosure (ClosureShallow x f) v = f v
 valOfClosure (ClosureDeep env x body) v = val ((x,v):env) body
 
 val :: [(Name, Val)] -> Exp -> Either String Val
@@ -320,22 +360,71 @@ val env (Eatom) = return $ ATOM
 val env (Equote e) = return $ QUOTE e
       
 doAp :: Val -> Val -> Either String Val
-doAp fun arg = error "unimplemented"
+doAp (LAM c) arg = valOfClosure c arg
+-- | why is PI a NEU? Is it because it can only occur as a TYPE of something?
+doAp (NEU (PI ti toclosure) piInhabitantv) arg = do 
+  to <- valOfClosure toclosure arg
+  return $ NEU to (Nap piInhabitantv (TyAndVal ti arg))
+
 
 doCar:: Val -> Either String Val
-doCar v = error "unimplemented"
+doCar (PAIR a d) = return a
+doCar (NEU (SIGMA ta _) v) = 
+    return $ NEU ta (Ncar v)
 
 doCdr :: Val -> Either String Val
 doCdr v = error "unimplemented"
 
+-- | Because every absurd is neutral (why?)
+-- (is it because it has no constructors?)
+-- | is ABSURD a type of a value?
+-- | TODO: I don't understand the below declaration.
 doIndAbsurd :: Val -> Val -> Either String Val
-doIndAbsurd target motive = error "unimplemented"
+doIndAbsurd (NEU (ABSURD) ne) motive = 
+  return $ NEU motive (Nindabsurd ne (TyAndVal UNIV motive))
 
-doReplace :: Val -> Val -> Val -> Either String Val
-doReplace target motive base = error "unimplemented"
+-- | When equality is same, both sides are returned as is
+doReplace :: Val -- target 
+          -> Val -- motive
+          -> Val -- base
+          -> Either String Val
+doReplace (SAME) motive base = return base
+doReplace (NEU (EQ tA from to) neutvtarget) motive base = do
+    tto <- doAp motive to
+    tfrom <- doAp motive from
+    return $ NEU tto $ Nreplace neutvtarget 
+      (TyAndVal (PI tA (ClosureShallow "x" $ \_ -> return UNIV)) motive)
+      (TyAndVal tfrom base)
+
+-- | Motive -> final type
+-- Π (n: nat) -> |(m n)  -> m (n + 1)
+--               | ^^lhs |   ^^^^rhs  |
+indNatStepType :: Val -> Val
+indNatStepType motive = 
+  PI NAT $ ClosureShallow "n" $ \n -> do
+             lhs <- (doAp motive n)
+             -- | TODO: why is this a closure? Why can't this be
+             -- rhs <- doAp motive (ADD1 n)
+             let rhs = ClosureShallow  "_" $ \_ -> doAp motive (ADD1 n)
+             return $ PI lhs rhs
+
 
 doIndNat :: Val -> Val -> Val -> Val -> Either String Val
-doIndNat target motive base step = error "unimplemented"
+-- doIndNat target motive base step = 
+doIndNat ZERO motive base step = return $ base
+doIndNat (ADD1 n) motive base step = do 
+    -- step N _
+    stepN_ <- doAp step n
+    indn <- doIndNat n motive base step
+    doAp stepN_ indn
+doIndNat target@(NEU NAT neutv) motive base step = do
+    retty <- doAp motive target
+    let motive' = TyAndVal (PI NAT (ClosureShallow "x" $ \_ -> return UNIV)) motive
+    motive0 <- doAp motive ZERO
+    let base' = TyAndVal motive0 base
+    let step' = TyAndVal (indNatStepType motive) step
+    return $ NEU retty $ Nindnat neutv motive' base' step'
+
 
 fresh :: [Name] -> Name -> Name
 fresh used x = 
