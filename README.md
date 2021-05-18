@@ -764,6 +764,22 @@ The racket implementation does not create a fresh variable:
 I think it's because we know that the name `x` explicitly refers to this
 variable, so it's safe to not create a fresh name.
 
+
+```hs
+-- | Generic check fallback
+check ctx eother tv = do
+    (Eannotate t' outother) <- synth ctx eother
+    t'v <- val ctx t'
+    -- | check that the types are equal.
+    convert ctx UNIV tv t'v
+    return $ outother
+```
+
+The generic fallback for type checking tries to synthesize and then
+checks for type equality. Interesting how we need a decidable equality
+of normal forms to get so much done. 
+
+
 # Running
 
 ```

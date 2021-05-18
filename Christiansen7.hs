@@ -800,6 +800,13 @@ check ctx (Equote x) t =
     notAtom -> 
       Left $ "expected quote to have type Atom, but found type " <>
              "|" <> show notAtom <> "|"
+-- | generic check fallback
+check ctx eother tv = do
+    (Eannotate t' outother) <- synth ctx eother
+    t'v <- val ctx t'
+    -- | check that the types are equal.
+    convert ctx UNIV tv t'v
+    return $ outother
 
 -- convert t v1 v2 = ...
 convert :: [(Name, Type)] -> Val -> Val -> Val -> Either String ()
@@ -811,3 +818,4 @@ convert ctx t v1 v2 = do
       False -> Left $ "expected α equivalence between " <>
                       "|" <> show e1 <> "| and " <>
                       "|" <> show e2 <> "|."
+
