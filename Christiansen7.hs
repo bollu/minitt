@@ -586,7 +586,6 @@ nbe ctx t e = do
 -- build new annotated ASTs.
 synth :: [(Name, Type)] -> Exp -> Either String Exp
 -- recall that Type = Val
-check :: [(Name, Type)] -> Exp -> Type -> Either String Exp
 synth ctx (Eannotate ty e) = do
     ty' <- check ctx ty UNIV -- check that ty has type universe (is at the right level)
     tyv <- val ctx ty' -- crunch what tout is
@@ -738,4 +737,17 @@ synth ctx (Eident name) =
 synth ctx e = 
     Left $ "cannot synthesize a type for expression |" <> show e <> "|"
 
-check = undefined
+
+-- | check pattern matches on the value
+check :: [(Name, Type)] -> Exp -> Type -> Either String Exp
+check ctx  (Econs ea ed) t = do
+    (ta, tdclosure) <- case t of
+      SIGMA ta tdclosure -> return (ta, tdclosure)
+      notSigma -> Left $ "expected cons to have Σ type. " <>
+                   "Found |" <> show (Econs ea ed) <> "|" <>
+                   "to have type |" <> show notSigma <> "|"
+    aout <- check ctx ea ta
+    eav <- val ctx ea
+    td <- valOfClosure  tdclosure eav
+    dout <- check ctx ed td
+    return $ Eannotate undefined (Econs aout dout)
