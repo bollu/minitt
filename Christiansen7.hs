@@ -685,22 +685,9 @@ synth ctx (Ereplace etarget emotive ebase) = do
     motivev <- val ctx motiveout
     baseout <- doAp motivev from >>= check ctx ebase
 
-    return (Ereplace etargetout motiveout baseout)
+    toout <- doAp motivev to >>= readbackVal ctx UNIV
+    return (Eannotate toout (Ereplace etargetout motiveout baseout))
 
-synth ctx (Ereplace etarget emotive ebase) = do
-    (Eannotate ttarget etargetout) <- synth ctx etarget
-    check ctx ttarget UNIV -- check that lives in UNIV
-    -- | pattern match the equality object to learn types of motive and base
-    etargetoutv <- val ctx etargetout
-    (x, from, to) <- case etargetoutv of
-        EQ x from to -> return (x, from, to)
-        _ -> Left $ "expected (replace  to destructure an EQ value; " <>
-                  "Found | " <> show etarget <> "|"
-    -- motive :: X -> UNIV
-    motiveout <- check ctx emotive 
-                  (PI x $ ClosureShallow "_" $ \_ -> return UNIV)
-    motivev <- val ctx motiveout
-    baseout <- doAp motivev from >>= check ctx ebase
 
     return (Ereplace etargetout motiveout baseout)
 check = undefined
