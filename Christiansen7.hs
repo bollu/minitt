@@ -704,4 +704,7 @@ synth ctx (Epi x edom ecodom) = do
     codomout <- check ((x,domtv):ctx) ecodom UNIV
     return (Eannotate Euniv (Epi x domout codomout))
 
+
+synth ctx Etrivial = return (Eannotate Euniv Etrivial)
+synth ctx Eabsurd = return (Eannotate Euniv Eabsurd)
 check = undefined
