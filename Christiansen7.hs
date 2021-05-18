@@ -707,4 +707,12 @@ synth ctx (Epi x edom ecodom) = do
 
 synth ctx Etrivial = return (Eannotate Euniv Etrivial)
 synth ctx Eabsurd = return (Eannotate Euniv Eabsurd)
+
+-- | convert a witness of Absurd into a witness of motive.
+-- Eindabsurd :: (target: Absurd) -> (motive: Univ) -> (out: motive)
+synth ctx (Eindabsurd etarget emotive) = do
+    targetout <- check ctx etarget ABSURD
+    motiveout <- check ctx emotive UNIV
+    return $ Eannotate motiveout (Eindabsurd targetout motiveout)
+    
 check = undefined

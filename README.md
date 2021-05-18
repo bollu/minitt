@@ -602,6 +602,19 @@ The implementation above is the current implementation, which sets up
 the new environment by binding the type of `x` to `domtv` and then evaluating
 the type of the codomain.
 
+
+##### `indabsurd`
+
+```hs
+synth ctx (Eindabsurd etarget emotive) = do
+    targetout <- check ctx etarget ABSURD
+    motiveout <- check ctx emotive UNIV
+    return $ Eannotate motiveout (Eindabsurd targetout motiveout)
+```
+
+We implement absurd by type checking, and then annotating the fact that the 
+result of induction has the same type as the motive.
+
 # Running
 
 ```
