@@ -347,6 +347,7 @@ I think every absurd is neutral because Absurd has no constructors.
 - Elaboration simply replaces expressions with annotated expressions (ie, `Eannotated { ty :: Expr, val :: Expr}`).
   It DOES NOT RETURM `(Type=Val, Expr)` where `Type` is a normal form.
 
+##### `car`
 
 To implement the type-checking of `car`, I implemented this as:
 
@@ -424,6 +425,58 @@ was straight up wrong, because `synth` returns an `Eannotate`, NOT a type!
 TODO: I should really think of changing the return type of `synth`.
 
 
+##### `cdr`
+
+Inventing evidence is wrong; And yet, that is what I did on my first
+try to implement `cdr`. I create a fake variable `let x = NEU lv (Nvar xname)`
+and then use this to type check `cdr`. Rather, what I ought to do is to
+extract out the `car` of the value by evaluation, and then use it to
+build the type of the `cdr`.
+
+```hs
+-- | Original broken impl that invents evidence.
+synth ctx (Ecdr p) = do
+    (Eannotate pty pelab) <- synth ctx p
+    ptyv <- val ctx pty
+    case ptyv of
+      SIGMA lv rclosure -> do 
+          let xname = fresh (map fst ctx) "x"
+          let x = NEU lv (Nvar xname)
+          rv <- valOfClosure rclosure x
+          re <- readbackVal ctx UNIV rv
+          return (Eannotate re (Ecar pelab))
+      nonSigma -> do 
+        ptyve <- readbackVal ctx UNIV nonSigma
+        Left $ "expected Ecar to be given value of Σ type." <>
+                "Value |" <> show pelab <> "| " <>
+                        "has non-Σ type |" <> show ptyve <> "|"
+```
+
+Corrected imlementation that produces an `x` by evaluation:
+
+```hs
+-- | Correct haskell imeplementation
+synth ctx (Ecdr p) = do
+    (Eannotate pty pelab) <- synth ctx p
+    ptyv <- val ctx pty
+    case ptyv of
+      SIGMA lt rtclosure -> do 
+          lv <- val ctx (Ecar p)
+          rt <- valOfClosure rtclosure lv
+          rte <- readbackVal ctx UNIV rt
+          return (Eannotate rte (Ecar pelab))
+      nonSigma -> do 
+        ptyve <- readbackVal ctx UNIV nonSigma
+        Left $ "expected Ecar to be given value of Σ type." <>
+                "Value |" <> show pelab <> "| " <>
+                        "has non-Σ type |" <> show ptyve <> "|"
+```
+
+I also have quite a large problem in naming these variables. The fact
+that `type, val, kind` are all synonyms makes naming strange. I am considering
+moving to name things by "level", so `val -> 0`, `type -> 1`, `kind -> 2`, and
+so on.  So, the variable `lv` (the `car` of the pair) becomes `l0`. The value
+`rt` (the type of the RHS of the Σ-type) becomes `r1`, and so on.
 
 #### Running
 

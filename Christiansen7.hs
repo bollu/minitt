@@ -622,12 +622,11 @@ synth ctx (Ecdr p) = do
     (Eannotate pty pelab) <- synth ctx p
     ptyv <- val ctx pty
     case ptyv of
-      SIGMA lv rclosure -> do 
-          let xname = fresh (map fst ctx) "x"
-          let x = NEU lv (Nvar xname)
-          rv <- valOfClosure rclosure x
-          re <- readbackVal ctx UNIV rv
-          return (Eannotate re (Ecar pelab))
+      SIGMA lt rtclosure -> do 
+          lv <- val ctx (Ecar p)
+          rt <- valOfClosure rtclosure lv
+          rte <- readbackVal ctx UNIV rt
+          return (Eannotate rte (Ecar pelab))
       nonSigma -> do 
         ptyve <- readbackVal ctx UNIV nonSigma
         Left $ "expected Ecar to be given value of Σ type." <>
