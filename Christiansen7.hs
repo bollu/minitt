@@ -632,4 +632,20 @@ synth ctx (Ecdr p) = do
         Left $ "expected Ecar to be given value of Σ type." <>
                 "Value |" <> show pelab <> "| " <>
                         "has non-Σ type |" <> show ptyve <> "|"
+
+synth ctx (Enat) = return $ Eannotate Euniv Enat
+synth ctx (Eindnat etarget emotive ebase estep) = do
+    target' <- check ctx etarget NAT
+    targetv <- val ctx target'
+
+    motive' <- check ctx emotive (PI NAT (ClosureShallow "_" $ \_ -> return UNIV))
+    motivev <- val ctx motive' -- motive or motive'?
+
+    doAp motivev ZERO >>= check ctx ebase 
+    check ctx estep (indNatStepType motivev)
+
+    motivetargetve <- doAp motivev targetv >>= readbackVal ctx UNIV
+    return (Eannotate motivetargetve (Eindnat target' motive' ebase estep))
+
+
 check = undefined
