@@ -607,13 +607,13 @@ synth ctx (Esigma x ta a2tb) = do
 synth ctx (Ecar p) = do
     (Eannotate pty pelab) <- synth ctx p
     ptyv <- val ctx pty
-    tleft <- case ptyv of
-            SIGMA left _ -> readbackVal ctx UNIV left
-            nonSigma -> do 
-                ptyve <- readbackVal ctx UNIV nonSigma
-                Left $ "expected Ecar to be given value of Σ type." <>
-                        "Value |" <> show pelab <> "| " <>
+    case ptyv of
+      SIGMA lv _ -> do 
+          le <- readbackVal ctx UNIV lv
+          return (Eannotate le (Ecar pelab))
+      nonSigma -> do 
+        ptyve <- readbackVal ctx UNIV nonSigma
+        Left $ "expected Ecar to be given value of Σ type." <>
+                "Value |" <> show pelab <> "| " <>
                         "has non-Σ type |" <> show ptyve <> "|"
-    -- | return the elaborated version of p.
-    return (Eannotate tleft (Ecar pelab))
 check = undefined
