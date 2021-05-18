@@ -767,12 +767,32 @@ check ctx (Eadd1 en) t = do
 -- | to be honest, i find this dubious. why should these be α equivalent?
 -- i guess the idea is that the only inhabitant of eq is `refl`,
 -- and thus their normal forms must be equal!
-check ctx esame (EQ t vfrom vto) = do 
-    convert ctx t vfrom vto
-    return esame
-check ctx esame noteq = 
-    Left $ "exected same to have type eq." <>
-           "found |" <> show noteq <> "|"
+check ctx Esame t = do
+  case t of
+   (EQ t vfrom vto) -> do
+      convert ctx t vfrom vto
+      return Esame
+   noteq -> Left $ "exected same to have type eq." <>
+                    "found |" <> show noteq <> "|"
+
+check ctx Esole t = 
+  case t of
+    TRIVIAL -> return Esole
+    notTrivial -> 
+      Left $ "expected sole to have type trivial, but found type " <>
+             "|" <> show notTrivial <> "|"
+
+check ctx (Elam x body) t = 
+  case t of
+    PI ta tbclosure -> do
+        let x' = fresh (map fst ctx) x
+        let vx' = NEU ta (Nvar x')
+        tb <- valOfClosure tbclosure vx'
+        outbody <- check ((x,vx'):ctx) body tb
+        return $ (Elam x outbody)
+    notPi -> 
+      Left $ "expected lambda to have type PI, but found type " <>
+             "|" <> show notPi <> "|"
 
 -- convert t v1 v2 = ...
 convert :: [(Name, Type)] -> Val -> Val -> Val -> Either String ()

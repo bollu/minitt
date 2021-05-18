@@ -701,10 +701,49 @@ check ctx Esame notEq =
 I initially implement `Esame` without a check for `α` equivalence.
 
 ```hs
+-- | Final correct implementation
+check ctx Esame t = do
+  case t of
+   (EQ t vfrom vto) -> do
+      convert ctx t vfrom vto
+      return Esame
+   noteq -> Left $ "exected same to have type eq." <>
+                    "found |" <> show noteq <> "|"
+
+-- convert t v1 v2 = ...
+convert :: [(Name, Type)] -> Val -> Val -> Val -> Either String ()
+convert ctx t v1 v2 = do
+    e1 <- readbackVal ctx t v1
+    e2 <- readbackVal ctx t v2
+    case alphaEquiv e1 e2 of
+      True -> return ()
+      False -> Left $ "expected α equivalence between " <>
+                      "|" <> show e1 <> "| and " <>
+                      "|" <> show e2 <> "|."
 ```
 
-The code above performs a check for `α` equivalence after checking
+The code above performs a check for `α` equivalence of values `vfrom`, `vto`.
+Since they are in their normal form, things whose equality `same` is witnessing
+better be the same (ie, equal normal form).  I guess the crux is that the only
+inhabitant of eq is `refl`, and thus their normal forms must be equal! I feel
+I don't grok this fully.
 
+
+##### `lam`
+
+```
+check ctx (Elam x body) t = 
+  case t of
+    PI ta tbclosure -> do
+        let x' = fresh (map fst ctx) x
+        let vx' = NEU ta (Nvar x')
+        tb <- valOfClosure tbclosure vx'
+        outbody <- check ((x,vx'):ctx) body tb
+        return $ (Elam x outbody)
+    notPi -> 
+      Left $ "expected lambda to have type PI, but found type " <>
+             "|" <> show notPi <> "|"
+```
 
 # Running
 
