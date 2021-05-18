@@ -569,6 +569,39 @@ I guess the idea is that checking this does not buy us anything, since we
 immediately pattern match on it to see that it's an equality object, which must
 live in `UNIV`.
 
+##### `pi`
+
+My original implementation:
+
+```hs
+-- PI = -> (DOM: UNIV) -> (x: DOM) -> (CODOM: DOM -> UNIV) -> PI (x: DOM) CODOM
+synth ctx (Epi x edom ecodom) = do
+    domout@(Eannotate domt _) <- check ctx edom UNIV
+    domtv <- val ctx domt 
+    codomout <- check ctx ecodom 
+                (PI domtv $ ClosureShallow "_" $ \_ -> return UNIV)
+    return (Eannotate Euniv (Epi x domout codomout))
+```
+
+This is completely wrong, since the type of the codomain cannot be a `Π` type!
+It's the combination of the domain and the codomain that gives us a `Π` type!
+Moreover, I should have realized that this implementation would more likely
+than not have caused the implementation to loop! `check Π` would call out
+to `synth Π` which would generate a `check Π` which ... . The correct solution
+is to treat it like a lambda: extend the context, and then evaluate the codomain.
+
+```hs
+synth ctx (Epi x edom ecodom) = do
+    domout@(Eannotate domt _) <- check ctx edom UNIV
+    domtv <- val ctx domt 
+    codomout <- check ((x,domtv):ctx) ecodom UNIV
+    return (Eannotate Euniv (Epi x domout codomout))
+```
+
+The implementation above is the current implementation, which sets up
+the new environment by binding the type of `x` to `domtv` and then evaluating
+the type of the codomain.
+
 # Running
 
 ```

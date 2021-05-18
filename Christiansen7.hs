@@ -584,9 +584,9 @@ nbe ctx t e = do
 -- that Exp will be Eannotate. We can't return a tuple (Type, Exp)
 -- since check will call synth and synth will call check compositionally to 
 -- build new annotated ASTs.
-synth :: [(Name, Val)] -> Exp -> Either String Exp
+synth :: [(Name, Type)] -> Exp -> Either String Exp
 -- recall that Type = Val
-check :: [(Name, Val)] -> Exp -> Type -> Either String Exp
+check :: [(Name, Type)] -> Exp -> Type -> Either String Exp
 synth ctx (Eannotate ty e) = do
     ty' <- check ctx ty UNIV -- check that ty has type universe (is at the right level)
     tyv <- val ctx ty' -- crunch what tout is
@@ -690,11 +690,18 @@ synth ctx (Ereplace etarget emotive ebase) = do
 
 
 -- PI = -> (DOM: UNIV) -> (x: DOM) -> (CODOM: DOM -> UNIV) -> PI (x: DOM) CODOM
+-- | My incorrect implementation that almost surely looops.
+-- synth ctx (Epi x edom ecodom) = do
+--     domout@(Eannotate domt _) <- check ctx edom UNIV
+--     domtv <- val ctx domt 
+--     codomout <- check ctx ecodom 
+--                 (PI domtv $ ClosureShallow "_" $ \_ -> return UNIV)
+--     return (Eannotate Euniv (Epi x domout codomout))
+
 synth ctx (Epi x edom ecodom) = do
     domout@(Eannotate domt _) <- check ctx edom UNIV
     domtv <- val ctx domt 
-    codomout <- check ctx ecodom 
-                (PI domtv $ ClosureShallow "_" $ \_ -> return UNIV)
+    codomout <- check ((x,domtv):ctx) ecodom UNIV
     return (Eannotate Euniv (Epi x domout codomout))
 
 check = undefined
