@@ -689,5 +689,12 @@ synth ctx (Ereplace etarget emotive ebase) = do
     return (Eannotate toout (Ereplace etargetout motiveout baseout))
 
 
-    return (Ereplace etargetout motiveout baseout)
+-- PI = -> (DOM: UNIV) -> (x: DOM) -> (CODOM: DOM -> UNIV) -> PI (x: DOM) CODOM
+synth ctx (Epi x edom ecodom) = do
+    domout@(Eannotate domt _) <- check ctx edom UNIV
+    domtv <- val ctx domt 
+    codomout <- check ctx ecodom 
+                (PI domtv $ ClosureShallow "_" $ \_ -> return UNIV)
+    return (Eannotate Euniv (Epi x domout codomout))
+
 check = undefined
