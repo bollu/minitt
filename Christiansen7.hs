@@ -680,7 +680,8 @@ synth ctx (Ereplace etarget emotive ebase) = do
         _ -> Left $ "expected (replace  to destructure an EQ value; " <>
                   "Found | " <> show etarget <> "|"
     -- motive :: X -> UNIV
-    motiveout <- check ctx emotive (PI x $ ClosureShallow "_" $ \_ -> return UNIV)
+    motiveout <- check ctx emotive 
+                  (PI x $ ClosureShallow "_" $ \_ -> return UNIV)
     motivev <- val ctx motiveout
     baseout <- doAp motivev from >>= check ctx ebase
 

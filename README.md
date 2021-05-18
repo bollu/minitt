@@ -390,14 +390,15 @@ Confusing. Why do we know that `non-SIGMA` lives in `UNIV`? *EDIT*: I
 understand now. The value we match on is `(match (val (ctx->env Γ) pr-ty))`. Notice
 that `pr-ty` comes from `[(the ,pr-ty ,pr-out) (synth Γ pr)]`. Correctness of
 `synth` guarantees that `pr-ty` lives in `UNIV`, and thus the normal form 
-computed by `val` (`non-SIGMA`) will live in `UNIV`. This ensures that `read-back-norm`
-does the right thing. Also notice that I depend on exactly the same thing! The line
-`tpe' <- nbe ctx UNIV tpe` relies on the fact that `nbe` will return me an elaborated
-expression taht lives in `UNIV`!
+computed by `val` (`non-SIGMA`) will live in `UNIV`. This ensures that
+`read-back-norm` does the right thing. Also notice that I depend on exactly the
+same thing! The line `tpe' <- nbe ctx UNIV tpe` relies on the fact that `nbe`
+will return me an elaborated expression taht lives in `UNIV`!
 
 Also note that my implementation does not return the elaborated version of `p`
-at `return (Eannotate tleft (Ecar p))`. This tells us that I should probably pattern-match
-on the output of `synth ctx p` and then discriminate error messages on that basis:
+at `return (Eannotate tleft (Ecar p))`. This tells us that I should probably
+pattern-match on the output of `synth ctx p` and then discriminate error
+messages on that basis:
 
 ```hs
 synth ctx (Ecar p) = do
@@ -530,6 +531,43 @@ synth ctx (Eeq te frome toe) = do
     return $ (Eannotate Euniv (Eeq tout fromout toout))
 ```
 
+
+##### replace:
+
+My implementation:
+
+```hs
+synth ctx (Ereplace etarget emotive ebase) = do
+    (Eannotate ttarget etargetout) <- synth ctx etarget
+    check ctx ttarget UNIV -- check that lives in UNIV
+    -- | pattern match the equality object to learn types of motive and base
+    etargetoutv <- val ctx etargetout
+    (x, from, to) <- case etargetoutv of
+        EQ x from to -> return (x, from, to)
+        _ -> Left $ "expected (replace  to destructure an EQ value; " <>
+                  "Found | " <> show etarget <> "|"
+    -- motive :: X -> UNIV
+    motiveout <- check ctx emotive (PI x $ ClosureShallow "_" $ \_ -> return UNIV)
+    motivev <- val ctx motiveout
+    baseout <- doAp motivev from >>= check ctx ebase
+
+    return (Ereplace etargetout motiveout baseout)
+```
+
+The racket implementation forgoes the check that `ttarget` lives in `UNIV`:
+
+```hs
+synth ctx (Ereplace etarget emotive ebase) = do
+    (Eannotate ttarget etargetout) <- synth ctx etarget
+    -- vvv NOT CHECKED BY RACKET IMPLEMENTATION
+    -- check ctx ttarget UNIV -- check that lives in UNIV
+    -- | pattern match the equality object to learn types of motive and base
+    etargetoutv <- val ctx etargetout
+```
+
+I guess the idea is that checking this does not buy us anything, since we
+immediately pattern match on it to see that it's an equality object, which must
+live in `UNIV`.
 
 # Running
 
