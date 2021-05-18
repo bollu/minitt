@@ -574,6 +574,7 @@ live in `UNIV`.
 My original implementation:
 
 ```hs
+-- | my initial (incorrect) implementation
 -- PI = -> (DOM: UNIV) -> (x: DOM) -> (CODOM: DOM -> UNIV) -> PI (x: DOM) CODOM
 synth ctx (Epi x edom ecodom) = do
     domout@(Eannotate domt _) <- check ctx edom UNIV
@@ -591,6 +592,7 @@ to `synth Π` which would generate a `check Π` which ... . The correct solution
 is to treat it like a lambda: extend the context, and then evaluate the codomain.
 
 ```hs
+-- | correct implementation
 synth ctx (Epi x edom ecodom) = do
     domout@(Eannotate domt _) <- check ctx edom UNIV
     domtv <- val ctx domt 
@@ -614,6 +616,35 @@ synth ctx (Eindabsurd etarget emotive) = do
 
 We implement absurd by type checking, and then annotating the fact that the 
 result of induction has the same type as the motive.
+
+##### `ap`
+
+
+```hs
+-- | my initial (correct) implementation
+synth ctx Eatom = return (Eannotate Euniv Eatom)
+synth ctx (Eap ef ex) = do
+    fout@(Eannotate tf _) <- synth ctx ef
+    vf <- val ctx fout
+    (tin, toutclosure) <- case vf of
+        PI tin tout -> return (tin, tout)
+        notPi -> Left $ "expected function type to be PI type at" <>
+                  "|" <> show fout <> "|, found type" <> 
+                  "|" <> show notPi <> "|"
+    xout <- check ctx ex tin
+    tout <- valOfClosure toutclosure xv >>= readbackVal ctx UNIV
+    return $ Eannotate tout (Eap fout xout)
+```
+
+We see very clearly how evaluation is interleaved with type-checking. The rule
+for `ap` seems to be the BEST rule to show this interleaving. See that
+we first check the type of `f` to know that it has a type
+`(PI (_: tin), toutclosure[_])` type. We check that `xe` has type `tin`.
+Then we *evaluate* `xe` into `xv`, to lean the output type `tout`.
+
+
+What I find entirely baffling is why this is not undecidable! It seems
+to me like we are able to "check" anything during type checking...
 
 # Running
 
