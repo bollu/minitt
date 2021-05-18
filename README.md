@@ -348,6 +348,82 @@ I think every absurd is neutral because Absurd has no constructors.
   It DOES NOT RETURM `(Type=Val, Expr)` where `Type` is a normal form.
 
 
+To implement the type-checking of `car`, I implemented this as:
+
+```hs
+nbe :: [(Name, Type)] -> Type -> Exp -> Either String Exp
+nbe ctx t e = do 
+    v <- val ctx e
+    readbackVal ctx t v 
+
+synth ctx (Ecar p) = do
+    tpe <- synth ctx p
+    tpe' <- nbe ctx UNIV tpe 
+    tleft <- case tpe' of
+            Esigma x tleft tright -> return tleft
+            _ -> Left $ "expected Ecar to be given value of Σ type." <>
+                        "Value |" <> show p <> "| " <>
+                        "has non-Σ type |" <> show tpe' <> "|"
+    return (Eannotate tleft (Ecar p))
+```
+
+while the tutorial implements this as:
+
+```lisp
+[`(car ,pr)
+  (go-on ([`(the ,pr-ty ,pr-out) (synth Γ pr)])
+    (match (val (ctx->env Γ) pr-ty)
+      [(SIGMA A D)
+        (go `(the ,(read-back-norm Γ (THE (UNI) A)) (car ,pr-out)))]
+      [non-SIGMA
+        (stop e (format "Expected Σ, got ~v"
+        (read-back-norm Γ (THE (UNI) non-SIGMA))))]))]
+```
+I find the final-step:
+
+```lisp
+(read-back-norm Γ (THE (UNI) non-SIGMA))
+```
+
+Confusing. Why do we know that `non-SIGMA` lives in `UNIV`? *EDIT*: I 
+understand now. The value we match on is `(match (val (ctx->env Γ) pr-ty))`. Notice
+that `pr-ty` comes from `[(the ,pr-ty ,pr-out) (synth Γ pr)]`. Correctness of
+`synth` guarantees that `pr-ty` lives in `UNIV`, and thus the normal form 
+computed by `val` (`non-SIGMA`) will live in `UNIV`. This ensures that `read-back-norm`
+does the right thing. Also notice that I depend on exactly the same thing! The line
+`tpe' <- nbe ctx UNIV tpe` relies on the fact that `nbe` will return me an elaborated
+expression taht lives in `UNIV`!
+
+Also note that my implementation does not return the elaborated version of `p`
+at `return (Eannotate tleft (Ecar p))`. This tells us that I should probably pattern-match
+on the output of `synth ctx p` and then discriminate error messages on that basis:
+
+```hs
+synth ctx (Ecar p) = do
+    (Eannotate pty pelab) <- synth ctx p
+               ^^^eval this
+    ptyv <- val ctx pty
+    tleft <- case ptyv of
+            SIGMA left _ -> readbackVal ctx UNIV left
+            nonSigma -> do 
+                ptyve <- readbackVal ctx UNIV nonSigma
+                Left $ "expected Ecar to be given value of Σ type." <>
+                        "Value |" <> show pelab <> "| " <>
+                        "has non-Σ type |" <> show ptyve <> "|"
+    -- | return the elaborated version of p.
+    return (Eannotate tleft (Ecar pelab))
+```
+
+My previous implementation of:
+
+```hs
+tpe <- synth ctx p
+```
+
+was straight up wrong, because `synth` returns an `Eannotate`, NOT a type!
+TODO: I should really think of changing the return type of `synth`.
+
+
 
 #### Running
 

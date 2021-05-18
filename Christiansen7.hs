@@ -1,4 +1,5 @@
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE FlexibleInstances #-}
 import Prelude hiding(EQ)
 import System.Environment
 import System.Exit
@@ -9,6 +10,9 @@ import Control.Monad(foldM)
 
 -- 7. Dependently yped lang
 -- http://davidchristiansen.dk/tutorials/nbe/
+
+instance MonadFail (Either String) where
+    fail = Left
 
 type Name = String
 
@@ -73,29 +77,29 @@ type Name = String
 
 -- Don't call stuff "scrutinee", call stuff "motive"! 
 data Exp = 
-    Elam Name Exp  -- (λ f x)
-  | Epi Name Exp Exp -- (Π [x tdom] tran)
-  | Eap Exp Exp -- ($ f x)
-  | Esigma Name Exp Exp -- [Σ [x tfst] tsnd]
-  | Econs Exp Exp -- (x, v)
-  | Ecar Exp 
-  | Ecdr Exp 
-  | Enat
-  | E0
-  | Eadd1 Exp
-  | Eindnat Exp Exp Exp Exp -- (ind-nat <target> <motive> <base> <step>)
-  | Eeq Exp Exp Exp -- (= ty a b)
-  | Esame 
-  | Ereplace Exp Exp Exp  -- (replace <target> <motive> <base>)
-  | Etrivial -- type ~= Unit
-  | Esole -- sole inhabitant of trivial ~= ◊=sole : Unit=Trivial 
-  | Eabsurd -- empty type / void
-  | Eindabsurd Exp Exp  -- (ind-absurd <target> <motive>)
-  | Eatom -- ? What is Atom? 
-  | Equote Exp -- ' id
+    Elam Name Exp  -- intro Π: (λ f x)
+  | Epi Name Exp Exp -- type: (Π [x tdom] tran)
+  | Eap Exp Exp -- elim Π: ($ f x)
+  | Esigma Name Exp Exp -- type: [Σ [x tfst] tsnd]
+  | Econs Exp Exp -- intro: (x, v)
+  | Ecar Exp  -- elim: (x, y) -> x
+  | Ecdr Exp -- elim: (x, y) -> y
+  | Enat -- type: Nat
+  | E0 -- intro: 0
+  | Eadd1 Exp -- intro: +1
+  | Eindnat Exp Exp Exp Exp -- elim: (ind-nat <target> <motive> <base> <step>)
+  | Eeq Exp Exp Exp -- type: (= ty a b)
+  | Esame -- intro: (= ty a b)
+  | Ereplace Exp Exp Exp  -- elim: (replace <target> <motive> <base>)
+  | Etrivial -- type: Unit/Trivial
+  | Esole -- intro:  (sole inhabitant of unit) ◊=sole : Unit=Trivial 
+  | Eabsurd -- type: absurd/Void
+  | Eindabsurd Exp Exp  -- elim absurd: (ind-absurd <target> <motive>)
+  | Eatom -- type: Atom 
+  | Equote Exp -- intro: atom
   | Euniv -- U
   | Eident String -- x
-  | Eannotate Exp Exp -- type exp
+  | Eannotate Exp Exp -- annotation: type exp
   deriving(Eq, Ord)
 
 -- | Check if expression is a simple expression with no data,
@@ -451,6 +455,7 @@ fresh used x =
     Nothing -> x
 
 readbackVal :: [(Name, Type)] -> Type -> Val -> Either String Exp
+
 -- | NAT
 readbackVal ctx NAT ZERO = return E0
 readbackVal ctx NAT (ADD1 n) = do
@@ -551,6 +556,14 @@ readbackNeutral ctx (Nindabsurd target
 
 -- 7.4: type checking.
 
+-- | having NBE is vital during type checking, since we want to
+-- normalize type-level terms to type check!
+nbe :: [(Name, Type)] -> Type -> Exp -> Either String Exp
+nbe ctx t e = do 
+    v <- val ctx e
+    readbackVal ctx t v 
+
+
 -- When examining types, looking for specific type constructors, the type
 -- checker matches against their values. This ensures that the type checker
 -- never forgets to normalize before checking, which could lead to types
@@ -581,5 +594,26 @@ synth ctx (Esigma x ta a2tb) = do
     tav <- val ctx ta'
     a2tb' <- check ((x,tav):ctx) a2tb UNIV
     return $ Eannotate Euniv (Esigma x ta' a2tb')
-
+-- | my implementation.
+-- synth ctx (Ecar p) = do
+--     tpe <- synth ctx p
+--     tpe' <- nbe ctx UNIV tpe 
+--     tleft <- case tpe' of
+--             Esigma x tleft tright -> return tleft
+--             _ -> Left $ "expected Ecar to be given value of Σ type." <>
+--                         "Value |" <> show p <> "| " <>
+--                         "has non-Σ type |" <> show tpe' <> "|"
+--     return (Eannotate tleft (Ecar p))
+synth ctx (Ecar p) = do
+    (Eannotate pty pelab) <- synth ctx p
+    ptyv <- val ctx pty
+    tleft <- case ptyv of
+            SIGMA left _ -> readbackVal ctx UNIV left
+            nonSigma -> do 
+                ptyve <- readbackVal ctx UNIV nonSigma
+                Left $ "expected Ecar to be given value of Σ type." <>
+                        "Value |" <> show pelab <> "| " <>
+                        "has non-Σ type |" <> show ptyve <> "|"
+    -- | return the elaborated version of p.
+    return (Eannotate tleft (Ecar pelab))
 check = undefined
