@@ -635,17 +635,17 @@ synth ctx (Ecdr p) = do
 
 synth ctx (Enat) = return $ Eannotate Euniv Enat
 synth ctx (Eindnat etarget emotive ebase estep) = do
-    target' <- check ctx etarget NAT
-    targetv <- val ctx target'
+    targetout <- check ctx etarget NAT
+    motiveout <- check ctx emotive (PI NAT (ClosureShallow "_" $ \_ -> return UNIV))
+    motivev <- val ctx motiveout
+    targetv <- val ctx targetout
 
-    motive' <- check ctx emotive (PI NAT (ClosureShallow "_" $ \_ -> return UNIV))
-    motivev <- val ctx motive' -- motive or motive'?
-
-    doAp motivev ZERO >>= check ctx ebase 
-    check ctx estep (indNatStepType motivev)
+    baseout <- doAp motivev ZERO >>= check ctx ebase 
+    stepout <- check ctx estep (indNatStepType motivev)
 
     motivetargetve <- doAp motivev targetv >>= readbackVal ctx UNIV
-    return (Eannotate motivetargetve (Eindnat target' motive' ebase estep))
+    return (Eannotate motivetargetve 
+                      (Eindnat targetout motiveout baseout stepout))
 
 
 check = undefined

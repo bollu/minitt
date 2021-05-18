@@ -477,8 +477,48 @@ that `type, val, kind` are all synonyms makes naming strange. I am considering
 moving to name things by "level", so `val -> 0`, `type -> 1`, `kind -> 2`, and
 so on.  So, the variable `lv` (the `car` of the pair) becomes `l0`. The value
 `rt` (the type of the RHS of the Σ-type) becomes `r1`, and so on.
+##### indnat
 
-#### Running
+I forgot to elaborate all my arguments:
+
+```hs
+synth ctx (Eindnat etarget emotive ebase estep) = do
+    target' <- check ctx etarget NAT
+    targetv <- val ctx target'
+
+    motive' <- check ctx emotive (PI NAT (ClosureShallow "_" $ \_ -> return UNIV))
+    motivev <- val ctx motive' -- motive or motive'?
+
+    doAp motivev ZERO >>= check ctx ebase  -- WHOOPS, forgot to use return
+    check ctx estep (indNatStepType motivev) -- WHOOPS
+
+    motivetargetve <- doAp motivev targetv >>= readbackVal ctx UNIV
+    return (Eannotate motivetargetve (Eindnat target' motive' ebase estep))
+```
+
+
+I also switched to the naming convention where the values that are derived
+after checking are called `out`. This seems to be a nice way to be explicit
+about what is happening. Also, chaining data to eliminate intermediates using
+`>>=` greatly improves readability.
+
+```hs
+synth ctx (Eindnat etarget emotive ebase estep) = do
+    targetout <- check ctx etarget NAT
+    motiveout <- check ctx emotive (PI NAT (ClosureShallow "_" $ \_ -> return UNIV))
+    motivev <- val ctx motiveout
+    targetv <- val ctx targetout
+
+    baseout <- doAp motivev ZERO >>= check ctx ebase 
+    stepout <- check ctx estep (indNatStepType motivev)
+
+    motivetargetve <- doAp motivev targetv >>= readbackVal ctx UNIV
+    return (Eannotate motivetargetve 
+                      (Eindnat targetout motiveout baseout stepout))
+```
+
+
+# Running
 
 ```
 $ ghci Main.hs
