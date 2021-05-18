@@ -647,5 +647,11 @@ synth ctx (Eindnat etarget emotive ebase estep) = do
     return (Eannotate motivetargetve 
                       (Eindnat targetout motiveout baseout stepout))
 
+synth ctx (Eeq te frome toe) = do
+    tout <- check ctx te UNIV
+    toutv <- val ctx tout
+    fromout <- check ctx frome toutv
+    toout <- check ctx toe toutv
+    return $ (Eannotate Euniv (Eeq tout fromout toout))
 
 check = undefined
