@@ -616,4 +616,21 @@ synth ctx (Ecar p) = do
         Left $ "expected Ecar to be given value of Σ type." <>
                 "Value |" <> show pelab <> "| " <>
                         "has non-Σ type |" <> show ptyve <> "|"
+
+-- | Interesting, I need to produce a value from a closure!
+synth ctx (Ecdr p) = do
+    (Eannotate pty pelab) <- synth ctx p
+    ptyv <- val ctx pty
+    case ptyv of
+      SIGMA lv rclosure -> do 
+          let xname = fresh (map fst ctx) "x"
+          let x = NEU lv (Nvar xname)
+          rv <- valOfClosure rclosure x
+          re <- readbackVal ctx UNIV rv
+          return (Eannotate re (Ecar pelab))
+      nonSigma -> do 
+        ptyve <- readbackVal ctx UNIV nonSigma
+        Left $ "expected Ecar to be given value of Σ type." <>
+                "Value |" <> show pelab <> "| " <>
+                        "has non-Σ type |" <> show ptyve <> "|"
 check = undefined
