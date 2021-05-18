@@ -687,6 +687,25 @@ check ctx  (Econs ea ed) t = do
 I removed the intermediate variable with a `>>=`, and also arrived at slightly 
 cleaner code.
 
+##### `eq`
+
+```hs
+-- | same is constructor of EQ
+-- | My initial incomplete implementation (no α equivalence)
+check ctx Esame (EQ t vfrom vto) = return Esame
+check ctx Esame notEq = 
+    Left $ "exected same to have type eq." <>
+           "Found |" <> show notEq <> "|"
+```
+
+I initially implement `Esame` without a check for `α` equivalence.
+
+```hs
+```
+
+The code above performs a check for `α` equivalence after checking
+
+
 # Running
 
 ```

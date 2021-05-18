@@ -739,6 +739,7 @@ synth ctx e =
 
 
 -- | check pattern matches on the value
+-- cons is checked because it is an introduction rule.
 check :: [(Name, Type)] -> Exp -> Type -> Either String Exp
 check ctx  (Econs ea ed) t = do
     (ta, tdclosure) <- case t of
@@ -747,7 +748,39 @@ check ctx  (Econs ea ed) t = do
                    "Found |" <> show (Econs ea ed) <> "|" <>
                    "to have type |" <> show notSigma <> "|"
     aout <- check ctx ea ta
-    eav <- val ctx ea
-    td <- valOfClosure  tdclosure eav
+    td <- val ctx ea >>= valOfClosure tdclosure
     dout <- check ctx ed td
-    return $ Eannotate undefined (Econs aout dout)
+    return $ (Econs aout dout)
+check ctx E0 t =
+    case t of
+     NAT -> return E0
+     notNat -> Left $ "expected zero to have type nat. " <>
+                      "Found |" <> show notNat <> "|"
+check ctx (Eadd1 en) t = do
+    check ctx en NAT
+    case t of
+     NAT -> return E0
+     notNat -> Left $ "expected zero to have type nat. " <>
+                      "Found |" <> show notNat <> "|"
+
+-- | same is constructor of EQ
+-- | to be honest, i find this dubious. why should these be α equivalent?
+-- i guess the idea is that the only inhabitant of eq is `refl`,
+-- and thus their normal forms must be equal!
+check ctx esame (EQ t vfrom vto) = do 
+    convert ctx t vfrom vto
+    return esame
+check ctx esame noteq = 
+    Left $ "exected same to have type eq." <>
+           "found |" <> show noteq <> "|"
+
+-- convert t v1 v2 = ...
+convert :: [(Name, Type)] -> Val -> Val -> Val -> Either String ()
+convert ctx t v1 v2 = do
+    e1 <- readbackVal ctx t v1
+    e2 <- readbackVal ctx t v2
+    case alphaEquiv e1 e2 of
+      True -> return ()
+      False -> Left $ "expected α equivalence between " <>
+                      "|" <> show e1 <> "| and " <>
+                      "|" <> show e2 <> "|."
