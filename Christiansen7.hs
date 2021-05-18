@@ -46,6 +46,14 @@ type Name = String
 --   and base isa (mot from)
 --   then (replace target mot base)
 --   is a (mot to).
+--
+--   replace :: (X: U) -> 
+--      (from: X) ->
+--      (to: X) ->
+--      (target: = X from to) -> 
+--      (mot: X -> U)
+--      (base: mot from) -> mot to
+--
 --  
 -- Absurd: / Void
 --   Absurd is a type.
@@ -647,6 +655,7 @@ synth ctx (Eindnat etarget emotive ebase estep) = do
     return (Eannotate motivetargetve 
                       (Eindnat targetout motiveout baseout stepout))
 
+-- | introduction for equality. Why is this in synthesis mode?
 synth ctx (Eeq te frome toe) = do
     tout <- check ctx te UNIV
     toutv <- val ctx tout
@@ -654,4 +663,26 @@ synth ctx (Eeq te frome toe) = do
     toout <- check ctx toe toutv
     return $ (Eannotate Euniv (Eeq tout fromout toout))
 
+-- | elimination  for equality
+--   replace :: {X: U} -> 
+--      {from: X} ->
+--      {to: X} ->
+--      (target: = X from to) -> 
+--      (mot: X -> U)
+--      (base: mot from) -> mot to
+synth ctx (Ereplace etarget emotive ebase) = do
+    (Eannotate ttarget etargetout) <- synth ctx etarget
+    check ctx ttarget UNIV -- check that lives in UNIV
+    -- | pattern match the equality object to learn types of motive and base
+    etargetoutv <- val ctx etargetout
+    (x, from, to) <- case etargetoutv of
+        EQ x from to -> return (x, from, to)
+        _ -> Left $ "expected (replace  to destructure an EQ value; " <>
+                  "Found | " <> show etarget <> "|"
+    -- motive :: X -> UNIV
+    motiveout <- check ctx emotive (PI x $ ClosureShallow "_" $ \_ -> return UNIV)
+    motivev <- val ctx motiveout
+    baseout <- doAp motivev from >>= check ctx ebase
+
+    return (Ereplace etargetout motiveout baseout)
 check = undefined
