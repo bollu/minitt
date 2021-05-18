@@ -651,6 +651,7 @@ to me like we are able to "check" anything during type checking...
 ```hs
 -- | check pattern matches on the value
 check :: [(Name, Type)] -> Exp -> Type -> Either String Exp
+-- My initial implementation
 check ctx  (Econs ea ed) t = do
     (ta, tdclosure) <- case t of
       SIGMA ta tdclosure -> return (ta, tdclosure)
@@ -666,7 +667,25 @@ check ctx  (Econs ea ed) t = do
 
 This was the first checking rule I wrote. In the code above,
 I wasn't sure if I had to annotate a `cons` so I left the `Eannotate`
-with an `undefined.
+with an `undefined. 
+
+```hs
+-- Final reference implementation
+check :: [(Name, Type)] -> Exp -> Type -> Either String Exp
+check ctx  (Econs ea ed) t = do
+    (ta, tdclosure) <- case t of
+      SIGMA ta tdclosure -> return (ta, tdclosure)
+      notSigma -> Left $ "expected cons to have Σ type. " <>
+                   "Found |" <> show (Econs ea ed) <> "|" <>
+                   "to have type |" <> show notSigma <> "|"
+    aout <- check ctx ea ta
+    td <- val ctx ea >>= valOfClosure tdclosure
+    dout <- check ctx ed td
+    return $ (Econs aout dout)
+```
+
+I removed the intermediate variable with a `>>=`, and also arrived at slightly 
+cleaner code.
 
 # Running
 
