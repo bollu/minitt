@@ -729,4 +729,13 @@ synth ctx (Eap ef ex) = do
     tout <- valOfClosure toutclosure xv >>= readbackVal ctx UNIV
     return $ Eannotate tout (Eap fout xout)
 
+synth ctx (Eident name) = 
+    case lookup name ctx of
+      Just t -> do
+          te <- readbackVal ctx UNIV t
+          return $ Eannotate te (Eident name)
+      Nothing -> Left $ "unknown variable |" <> name <> "|"
+synth ctx e = 
+    Left $ "cannot synthesize a type for expression |" <> show e <> "|"
+
 check = undefined
