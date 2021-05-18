@@ -517,6 +517,19 @@ synth ctx (Eindnat etarget emotive ebase estep) = do
                       (Eindnat targetout motiveout baseout stepout))
 ```
 
+##### equality type `(eq A from to)`:
+
+I got it right!
+
+```hs
+synth ctx (Eeq te frome toe) = do
+    tout <- check ctx te UNIV
+    toutv <- val ctx tout
+    fromout <- check ctx frome toutv
+    toout <- check ctx toe toutv
+    return $ (Eannotate Euniv (Eeq tout fromout toout))
+```
+
 
 # Running
 
