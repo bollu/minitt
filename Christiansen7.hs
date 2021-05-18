@@ -785,14 +785,21 @@ check ctx Esole t =
 check ctx (Elam x body) t = 
   case t of
     PI ta tbclosure -> do
-        let x' = fresh (map fst ctx) x
-        let vx' = NEU ta (Nvar x')
-        tb <- valOfClosure tbclosure vx'
-        outbody <- check ((x,vx'):ctx) body tb
+        let vx = NEU ta (Nvar x)
+        tb <- valOfClosure tbclosure vx
+        outbody <- check ((x,vx):ctx) body tb
         return $ (Elam x outbody)
     notPi -> 
       Left $ "expected lambda to have type PI, but found type " <>
              "|" <> show notPi <> "|"
+
+-- quote constructs atom
+check ctx (Equote x) t = 
+  case t of
+    ATOM -> return $ (Equote x)
+    notAtom -> 
+      Left $ "expected quote to have type Atom, but found type " <>
+             "|" <> show notAtom <> "|"
 
 -- convert t v1 v2 = ...
 convert :: [(Name, Type)] -> Val -> Val -> Val -> Either String ()

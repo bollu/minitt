@@ -732,6 +732,7 @@ I don't grok this fully.
 ##### `lam`
 
 ```
+-- | My initial implementaiton.
 check ctx (Elam x body) t = 
   case t of
     PI ta tbclosure -> do
@@ -744,6 +745,24 @@ check ctx (Elam x body) t =
       Left $ "expected lambda to have type PI, but found type " <>
              "|" <> show notPi <> "|"
 ```
+
+The above is the implementation of `lam` I wrote initially.
+The racket implementation does not create a fresh variable:
+
+```lisp
+[`(,(or 'λ 'lambda) (,x) ,b)
+  (match t
+    [(PI A B)
+      (define x-val (NEU A (N-var x))) ;; no fresh!
+      (go-on ([b-out (check (extend-ctx Γ x A) b (val-of-closure B x-val))])
+      (go `(λ (,x) ,b-out)))]
+    [non-PI (stop e (format "Expected Π, got ~v"
+      (read-back-norm Γ (THE (UNI) non-PI))))])]
+
+```
+
+I think it's because we know that the name `x` explicitly refers to this
+variable, so it's safe to not create a fresh name.
 
 # Running
 
