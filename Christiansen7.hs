@@ -715,4 +715,18 @@ synth ctx (Eindabsurd etarget emotive) = do
     motiveout <- check ctx emotive UNIV
     return $ Eannotate motiveout (Eindabsurd targetout motiveout)
     
+synth ctx Eatom = return (Eannotate Euniv Eatom)
+synth ctx (Eap ef ex) = do
+    fout@(Eannotate tf _) <- synth ctx ef
+    vf <- val ctx fout
+    (tin, toutclosure) <- case vf of
+        PI tin tout -> return (tin, tout)
+        notPi -> Left $ "expected function type to be PI type at" <>
+                  "|" <> show fout <> "|, found type" <> 
+                  "|" <> show notPi <> "|"
+    xout <- check ctx ex tin
+    xv <- val ctx xout
+    tout <- valOfClosure toutclosure xv >>= readbackVal ctx UNIV
+    return $ Eannotate tout (Eap fout xout)
+
 check = undefined
