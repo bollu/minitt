@@ -240,20 +240,24 @@ main = do
   putStrLn $ "type checking and evaluating..."
   foldM1' decls $ \(tenv, venv) (name,exp) -> do
     putStrLn $ "- " <> name <> ":"
-    -- t <- case synth tenv exp of
-    --        Left failure -> putStrLn failure >> exitFailure
-    --        Right t -> pure t
-    t <- pure $ error "undefined type"
-    putStrLn $ "\t+type: " <> show t
+    te <- case synth tenv exp of
+           Left failure -> putStrLn failure >> exitFailure
+           Right te -> pure te
+    -- t <- pure $ error "undefined type"
+    tv <- case val tenv te of
+            Left failure -> putStrLn failure >> exitFailure
+            Right tv -> pure tv
+    putStrLn $ "\t+type: " <> show te
+    putStrLn $ "\t+type[normal form]: " <> show tv
     v <- case val venv exp of
              Left failure -> putStrLn failure >> exitFailure 
              Right v -> pure v
     putStrLn $ "\t+evaluated. reading back..."
-    exp' <- case  readbackVal [] t v of
+    exp' <- case  readbackVal venv tv v of
              Left failure -> putStrLn failure >> exitFailure 
              Right v -> pure v
     putStrLn $ "\t+readback: " <> show exp'
-    return ((name, t):tenv, (name,v):venv)
+    return ((name, tv):tenv, (name,v):venv)
   return ()
 
 
