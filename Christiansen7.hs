@@ -170,10 +170,28 @@ alphaEquivGo e e' _ _ n = (expIsKeyword e && e == e', n)
 
 instance Show Exp where
   show (Elam name exp) = "(λ " <> name <> " " <> show exp <> ")"
-  show (Eident name) = name
-  show (Eap f x) = "($ " <> show f <> " " <> show x <> ")"
+  show (Epi name dom codom) = 
+    "(Π " <> name <> " " <> show dom <> " " <> show codom <> ")"
+  show (Eap f x) = 
+    "($ " <> show f <> " " <> show x <> ")"
+  show (Esigma name dom codom) = 
+    "(Σ " <> name <> " " <> show dom <> " " <> show codom <> ")"
+  show (Econs x y) = 
+    "(cons " <> show x <> " " <> show y <> ")"
+  show (Ecar e) = 
+    "(car " <> show e <> ")"
+  show (Ecdr e) = 
+    "(cdr " <> show e <> ")"
+  show Enat = "nat"
   show (E0) = "0"
   show (Eadd1 x) = "(+1 " <> show x <> ")"
+  show (Eindnat target motive base step) = 
+    "(ind-nat " <> 
+     show target <> " " <>
+     show motive <> " " <>
+     show base <> " " <>
+     show step <> ")"
+  show (Eident name) = name
   show (Eannotate e t) = "(∈ " <> show e <> " " <> show t <> ")"
   -- show (Erec t target base step) = "(rec " <> show target <> " " <> show base <> " " <> show step <> ")"
 type Choice = (String, Exp)
@@ -181,6 +199,7 @@ type Choice = (String, Exp)
 
 toExp :: AST -> Either Error Exp
 toExp (Atom span "0") = Right $ E0
+toExp (Atom span "nat") = Right $ Enat
 toExp (Atom span ident) = Right $ Eident ident
 toExp tuple = do
   head  <- tuplehd atom tuple
@@ -197,6 +216,14 @@ toExp tuple = do
     "+1" -> do 
       ((), e) <- tuple2f astignore toExp tuple
       return $ Eadd1 e
+    "→" -> do 
+      ((), ti, to) <- tuple3f astignore toExp toExp tuple
+      return $ Epi "_" ti to
+    "ind-nat" -> do
+        ((), target, motive, base, step) <- tuple5f 
+            astignore toExp toExp toExp toExp tuple
+        return $ Eindnat target motive base step
+
     -- "rec" -> do 
     --   ((), ty, target, base, step) <- 
     --     tuple5f astignore toType toExp toExp toExp tuple
@@ -527,6 +554,8 @@ readbackVal ctx t1 (NEU t2 ne) = readbackNeutral ctx ne
 -- | Inconsistent theory? x(
 -- How to exhibit inconsistence given Univ: Univ?
 readbackVal ctx UNIV UNIV = return $ Euniv
+readbackVal ctx t v = 
+    Left $ "unknown readback |" <> show v <>  " :: " <> show t <> "|"
 
 -- | Read back a neutral expression as syntax.
 -- | users are:

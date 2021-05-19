@@ -11,6 +11,7 @@ I finally managed to piece together a curricula for learning how to implement de
 1. CubicalTT from cubicalTT
 1. [Pfenning, lecture notes handout on bidirectional typing (great)!](https://www.cs.cmu.edu/~fp/courses/15312-f04/handouts/15-bidirectional.pdf)
 
+
 Reading on normalization by evaluation:
 
 1. NBE for typed STLC: [Wiki article](https://en.wikipedia.org/wiki/Normalisation_by_evaluation), 
@@ -41,6 +42,12 @@ Reading on implementing tactics:
 Reading on future things of interest:
 
 - [Pi Sigma: Dependent types without the sugar](https://www.andres-loeh.de/PiSigma/PiSigma.pdf)
+
+
+My questions:
+- Proof of inconsistency because of `Type : Type`: Hanken paradox.
+- Good test for cumulative hierarchy: refutation of Girard paradox.
+- https://cstheory.stackexchange.com/questions/48962/does-univ-univ-always-lead-to-a-contradiction-in-a-dependently-typed-language?rq=1
 
 
 # Bidirectional type checking by Pfenning
