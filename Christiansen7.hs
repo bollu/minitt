@@ -266,24 +266,29 @@ main = do
 
   putStrLn $ "type checking and evaluating..."
   foldM1' decls $ \(tenv, venv) (name,exp) -> do
-    putStrLn $ "- " <> name <> ":"
-    te <- case synth tenv exp of
+    putStrLn $ "- " <> name <> ": " <> show exp
+    (te, exp') <- case synth tenv exp of
            Left failure -> putStrLn failure >> exitFailure
-           Right te -> pure te
-    -- t <- pure $ error "undefined type"
+           Right (Eannotate te exp') -> pure (te, exp')
+           Right notEannotate -> do
+               putStrLn $ "expected Eannotate from synth, " <>
+                   "found |" <> show notEannotate <> "|."
+               exitFailure
+    putStrLn $ "\t+type-e: " <> show te
+    putStrLn $ "\t+defn-elab-e: " <> show exp'
     tv <- case val tenv te of
             Left failure -> putStrLn failure >> exitFailure
             Right tv -> pure tv
-    putStrLn $ "\t+type: " <> show te
-    putStrLn $ "\t+type[normal form]: " <> show tv
-    v <- case val venv exp of
+    putStrLn $ "\t+type-v: " <> show tv
+    v <- case val venv exp' of
              Left failure -> putStrLn failure >> exitFailure 
              Right v -> pure v
-    putStrLn $ "\t+evaluated. reading back..."
-    exp' <- case  readbackVal venv tv v of
+    putStrLn $ "\t+expr-elab-v: " <> show v
+    putStrLn $ "\t+reading back expr form value of expr..."
+    vexp <- case  readbackVal venv tv v of
              Left failure -> putStrLn failure >> exitFailure 
-             Right v -> pure v
-    putStrLn $ "\t+readback: " <> show exp'
+             Right vexp -> pure vexp
+    putStrLn $ "\t+expr-elab-v-e: " <> show vexp
     return ((name, tv):tenv, (name,v):venv)
   return ()
 
