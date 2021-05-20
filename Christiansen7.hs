@@ -284,7 +284,7 @@ main = do
              Left failure -> putStrLn failure >> exitFailure 
              Right v -> pure v
     putStrLn $ "\t+expr-elab-v: " <> show v
-    putStrLn $ "\t+reading back expr form value of expr..."
+    putStrLn $ "\t+reading back..."
     vexp <- case  readbackVal venv tv v of
              Left failure -> putStrLn failure >> exitFailure 
              Right vexp -> pure vexp
@@ -795,9 +795,9 @@ check ctx E0 t =
      notNat -> Left $ "expected zero to have type nat. " <>
                       "Found |" <> show notNat <> "|"
 check ctx (Eadd1 en) t = do
-    check ctx en NAT
+    en' <- check ctx en NAT
     case t of
-     NAT -> return E0
+     NAT -> return (Eadd1 en')
      notNat -> Left $ "expected zero to have type nat. " <>
                       "Found |" <> show notNat <> "|"
 
