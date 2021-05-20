@@ -119,7 +119,8 @@ expIsKeyword Etrivial = True
 expIsKeyword Esole = True
 expIsKeyword Eabsurd = True
 expIsKeyword Eatom = True
-
+expIsKeyword Enat = True
+expIsKeyword _ = False
 
 -- This is kinda sus:
 -- -----------------
@@ -191,6 +192,20 @@ instance Show Exp where
      show motive <> " " <>
      show base <> " " <>
      show step <> ")"
+  show (Eeq t from to) = 
+      "(= " <> show t <> " " <> show from <> show to <> ")"
+  show (Esame) = "same"
+  show (Ereplace target motive base) = 
+      "(replace " <> 
+      show target <> " " <> 
+      show motive <> " " <>
+      show base <> ")"
+  show Etrivial = "trivial"
+  show Esole = "sole"
+  show Eabsurd = "absurd"
+  show Eatom = "atom"
+  show (Equote e) = "('" <> show e <> ")"
+  show Euniv = "univ"
   show (Eident name) = name
   show (Eannotate e t) = "(∈ " <> show e <> " " <> show t <> ")"
   -- show (Erec t target base step) = "(rec " <> show target <> " " <> show base <> " " <> show step <> ")"
@@ -421,8 +436,14 @@ val env (Eindabsurd etarget emotive) = do
     target <- val env etarget
     motive <- val env emotive
     doIndAbsurd target motive
+
 val env (Eatom) = return $ ATOM
 val env (Equote e) = return $ QUOTE e
+val env (Eident n) =
+  case lookup n env of
+    Just v -> Right v
+    Nothing -> Left $ "unknown variable |" <> n <> "|"
+val env e = Left $ "unknown expression for val: |" <> show e <> "|"
       
 doAp :: Val -> Val -> Either String Val
 doAp (LAM c) arg = valOfClosure c arg
@@ -736,8 +757,8 @@ synth ctx (Ereplace etarget emotive ebase) = do
 --     return (Eannotate Euniv (Epi x domout codomout))
 
 synth ctx (Epi x edom ecodom) = do
-    domout@(Eannotate domt _) <- check ctx edom UNIV
-    domtv <- val ctx domt 
+    domout <- check ctx edom UNIV
+    domtv <- val ctx domout
     codomout <- check ((x,domtv):ctx) ecodom UNIV
     return (Eannotate Euniv (Epi x domout codomout))
 
@@ -772,6 +793,7 @@ synth ctx (Eident name) =
           te <- readbackVal ctx UNIV t
           return $ Eannotate te (Eident name)
       Nothing -> Left $ "unknown variable |" <> name <> "|"
+
 synth ctx e = 
     Left $ "cannot synthesize a type for expression |" <> show e <> "|"
 
@@ -825,7 +847,7 @@ check ctx (Elam x body) t =
     PI ta tbclosure -> do
         let vx = NEU ta (Nvar x)
         tb <- valOfClosure tbclosure vx
-        outbody <- check ((x,vx):ctx) body tb
+        outbody <- check ((x,ta):ctx) body tb
         return $ (Elam x outbody)
     notPi -> 
       Left $ "expected lambda to have type PI, but found type " <>
@@ -838,13 +860,21 @@ check ctx (Equote x) t =
     notAtom -> 
       Left $ "expected quote to have type Atom, but found type " <>
              "|" <> show notAtom <> "|"
+
+
 -- | generic check fallback
-check ctx eother tv = do
-    (Eannotate t' outother) <- synth ctx eother
-    t'v <- val ctx t'
+check ctx e texpectedv = do
+    eout@(Eannotate te _) <- synth ctx e
+    tev <- val ctx te
     -- | check that the types are equal.
-    convert ctx UNIV tv t'v
-    return $ outother
+    case convert ctx UNIV tev texpectedv of
+      Right () -> pure ()
+      Left err -> do
+        Left $ "check |" <> show  eout <> "| : " <>
+                "|" <> show tev <> "|" <> " =? " <>
+                "|" <> show texpectedv  <> " [expected]|" <>
+                " failed: " <> err
+    return $ eout
 
 -- convert t v1 v2 = ...
 convert :: [(Name, Type)] -> Val -> Val -> Val -> Either String ()

@@ -1,7 +1,6 @@
 (zero-t (∈ nat 0))
 (three 
   (∈ nat (+1 (+1 (+1 0))))) 
-(threeNoType (+1 (+1 (+1 0)))) 
 
 (add (∈ (→ nat (→ nat nat))
         (λ n (λ k (ind-nat n
