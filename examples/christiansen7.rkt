@@ -8,10 +8,9 @@
                        k
                        (λ pred (λ s (+1 s))))))))
 
-(add1-zero (+1 0))
+(add1-zero (∈ nat (+1 0)))
 (zero+_ ($ add 0))
 
-(sixNoType ($ ($ add three) three))
 
 (six (∈ nat
         ($ ($ add three) three)))

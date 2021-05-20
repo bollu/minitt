@@ -3,6 +3,7 @@
 import Prelude hiding(EQ)
 import System.Environment
 import System.Exit
+import Debug.Trace
 import Data.List
 import AST
 import Data.Either
@@ -207,7 +208,7 @@ instance Show Exp where
   show (Equote e) = "('" <> show e <> ")"
   show Euniv = "univ"
   show (Eident name) = name
-  show (Eannotate e t) = "(∈ " <> show e <> " " <> show t <> ")"
+  show (Eannotate t e) = "(∈ " <> show t <> " " <> show e <> ")"
   -- show (Erec t target base step) = "(rec " <> show target <> " " <> show base <> " " <> show step <> ")"
 type Choice = (String, Exp)
 
@@ -281,7 +282,8 @@ main = do
 
   putStrLn $ "type checking and evaluating..."
   foldM1' decls $ \(tenv, venv) (name,exp) -> do
-    putStrLn $ "- " <> name <> ": " <> show exp
+    putStrLn $ "***" <> name <> ": " <> show exp <> "***"
+    putStrLn $ "\t+synthesizing type..."
     (te, exp') <- case synth tenv exp of
            Left failure -> putStrLn failure >> exitFailure
            Right (Eannotate te exp') -> pure (te, exp')
@@ -291,10 +293,12 @@ main = do
                exitFailure
     putStrLn $ "\t+type-e: " <> show te
     putStrLn $ "\t+defn-elab-e: " <> show exp'
+    putStrLn $ "\t+evaluating type..."
     tv <- case val tenv te of
             Left failure -> putStrLn failure >> exitFailure
             Right tv -> pure tv
     putStrLn $ "\t+type-v: " <> show tv
+    putStrLn $ "\t+evaluating value..."
     v <- case val venv exp' of
              Left failure -> putStrLn failure >> exitFailure 
              Right v -> pure v
@@ -303,7 +307,7 @@ main = do
     vexp <- case  readbackVal venv tv v of
              Left failure -> putStrLn failure >> exitFailure 
              Right vexp -> pure vexp
-    putStrLn $ "\t+expr-elab-v-e: " <> show vexp
+    putStrLn $ "\t+FINAL: " <> show vexp
     return ((name, tv):tenv, (name,v):venv)
   return ()
 
@@ -386,7 +390,8 @@ valOfClosure :: Closure -> Val -> Either String Val
 valOfClosure (ClosureShallow x f) v = f v
 valOfClosure (ClosureDeep env x body) v = val ((x,v):env) body
 
-val :: [(Name, Val)] -> Exp -> Either String Val
+
+val :: [(Name, IsThisValOrType)] -> Exp -> Either String Val
 val env (Eannotate t e) = val env e
 val env (Euniv) = return $ UNIV
 val env (Epi x etdom etcodom) = do
@@ -443,7 +448,13 @@ val env (Eident n) =
   case lookup n env of
     Just v -> Right v
     Nothing -> Left $ "unknown variable |" <> n <> "|"
-val env e = Left $ "unknown expression for val: |" <> show e <> "|"
+val env (Eap f x) = do
+    traceM $ "doAp: " <> show (Eap f x)
+    vf <- val env f
+    vx <- val env x
+    traceM $ "doAp in val of Eap: f|" <> show vf <> "| x|" <> show vx <> "|"
+    doAp vf vx
+-- val env e = Left $ "unknown expression for val: |" <> show e <> "|"
       
 doAp :: Val -> Val -> Either String Val
 doAp (LAM c) arg = valOfClosure c arg
@@ -451,6 +462,9 @@ doAp (LAM c) arg = valOfClosure c arg
 doAp (NEU (PI ti toclosure) piInhabitantv) arg = do 
   to <- valOfClosure toclosure arg
   return $ NEU to (Nap piInhabitantv (TyAndVal ti arg))
+doAp v arg = 
+    Left $ "ERR: illegal application of |" <> show v <> "|" <>
+            " to |" <> show arg <> "|."
 
 
 doCar:: Val -> Either String Val
@@ -476,6 +490,7 @@ doReplace :: Val -- target
           -> Either String Val
 doReplace (SAME) motive base = return base
 doReplace (NEU (EQ tA from to) neutvtarget) motive base = do
+    traceM "doAp in doReplace"
     tto <- doAp motive to
     tfrom <- doAp motive from
     return $ NEU tto $ Nreplace neutvtarget 
@@ -488,9 +503,11 @@ doReplace (NEU (EQ tA from to) neutvtarget) motive base = do
 indNatStepType :: Val -> Val
 indNatStepType motive = 
   PI NAT $ ClosureShallow "n" $ \n -> do
+             traceM "doAp in indNatStepType: lhs"
              lhs <- (doAp motive n)
              -- | TODO: why is this a closure? Why can't this be
              -- rhs <- doAp motive (ADD1 n)
+             traceM "doAp in indNatStepType: rhs"
              let rhs = ClosureShallow  "_" $ \_ -> doAp motive (ADD1 n)
              return $ PI lhs rhs
 
@@ -500,8 +517,10 @@ doIndNat :: Val -> Val -> Val -> Val -> Either String Val
 doIndNat ZERO motive base step = return $ base
 doIndNat (ADD1 n) motive base step = do 
     -- step N _
+    traceM "doAp in doIntNat: stepN_"
     stepN_ <- doAp step n
     indn <- doIndNat n motive base step
+    traceM "doAp in doIntNat: final"
     doAp stepN_ indn
 doIndNat target@(NEU NAT neutv) motive base step = do
     retty <- doAp motive target
@@ -533,6 +552,7 @@ readbackVal ctx (PI ta a2tb) f = do
     -- | notice how data is propagated at both value and type level
     -- AT THE SAME TIME!
     tb <- valOfClosure a2tb aval
+    traceM $ "doAp in readbackVal: PI"
     fout <- doAp f aval
     expr_fout <- readbackVal ((aident,ta):ctx) tb fout
     return $ Elam aident expr_fout
@@ -706,9 +726,11 @@ synth ctx (Eindnat etarget emotive ebase estep) = do
     motivev <- val ctx motiveout
     targetv <- val ctx targetout
 
+    traceM "doAp in synth Eindnat: baseout"
     baseout <- doAp motivev ZERO >>= check ctx ebase 
     stepout <- check ctx estep (indNatStepType motivev)
 
+    traceM "doAp in synth Eindnat: motivetargetve"
     motivetargetve <- doAp motivev targetv >>= readbackVal ctx UNIV
     return (Eannotate motivetargetve 
                       (Eindnat targetout motiveout baseout stepout))
@@ -741,8 +763,10 @@ synth ctx (Ereplace etarget emotive ebase) = do
     motiveout <- check ctx emotive 
                   (PI x $ ClosureShallow "_" $ \_ -> return UNIV)
     motivev <- val ctx motiveout
+    traceM "doAp in ereplace: baseout"
     baseout <- doAp motivev from >>= check ctx ebase
 
+    traceM "doAp in ereplace: toout"
     toout <- doAp motivev to >>= readbackVal ctx UNIV
     return (Eannotate toout (Ereplace etargetout motiveout baseout))
 
@@ -775,14 +799,18 @@ synth ctx (Eindabsurd etarget emotive) = do
     
 synth ctx Eatom = return (Eannotate Euniv Eatom)
 synth ctx (Eap ef ex) = do
-    fout@(Eannotate tf _) <- synth ctx ef
+    fout <- synth ctx ef
+    traceM $ "Eap fout: " <> show fout
+    traceM "val in Eap: vf"
     vf <- val ctx fout
+    traceM $ "done vf: " <> show vf
     (tin, toutclosure) <- case vf of
         PI tin tout -> return (tin, tout)
         notPi -> Left $ "expected function type to be PI type at" <>
                   "|" <> show fout <> "|, found type" <> 
                   "|" <> show notPi <> "|"
     xout <- check ctx ex tin
+    traceM "val in Eap: xv"
     xv <- val ctx xout
     tout <- valOfClosure toutclosure xv >>= readbackVal ctx UNIV
     return $ Eannotate tout (Eap fout xout)

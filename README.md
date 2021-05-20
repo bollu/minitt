@@ -787,6 +787,11 @@ checks for type equality. Interesting how we need a decidable equality
 of normal forms to get so much done. 
 
 
+# What is stored in the context? Type, or value?
+
+I realize I am hopelessly confused; I don't know what is stored in the
+context, whether type or value.
+
 # Running
 
 ```
