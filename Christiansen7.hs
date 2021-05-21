@@ -84,6 +84,7 @@ type Name = String
 --     ATOMs are equal if their quoted values are equal.
 --    
 
+
 -- Don't call stuff "scrutinee", call stuff "motive"! 
 data Exp = 
     Elam Name Exp  -- intro Π: (λ f x)
@@ -252,7 +253,7 @@ toDecl :: AST -> Either Error (Name, Exp)
 toDecl = tuple2f atom toExp
 
 
-foldM' :: (Semigroup s, Monad m, Traversable t) => 
+foldM' :: (Monad m, Traversable t) => 
   s -> t a -> (s -> a -> m s) -> m s
 foldM' s t f = foldM f s t
 
@@ -281,34 +282,34 @@ main = do
             Right d -> pure d
 
   putStrLn $ "type checking and evaluating..."
-  foldM1' decls $ \(tenv, venv) (name,exp) -> do
+  foldM' CtxEmpty decls $ \ctx (name,exp) -> do
     putStrLn $ "***" <> name <> ": " <> show exp <> "***"
     putStrLn $ "\t+synthesizing type..."
-    (te, exp') <- case synth tenv exp of
-           Left failure -> putStrLn failure >> exitFailure
-           Right (Eannotate te exp') -> pure (te, exp')
-           Right notEannotate -> do
-               putStrLn $ "expected Eannotate from synth, " <>
-                   "found |" <> show notEannotate <> "|."
-               exitFailure
+    (te, exp') <- case synth ctx exp of
+            Left failure -> putStrLn failure >> exitFailure
+            Right (Eannotate te exp') -> pure (te, exp')
+            Right notEannotate -> do
+                putStrLn $ "expected Eannotate from synth, " <>
+                    "found |" <> show notEannotate <> "|."
+                exitFailure
     putStrLn $ "\t+type-e: " <> show te
     putStrLn $ "\t+defn-elab-e: " <> show exp'
     putStrLn $ "\t+evaluating type..."
-    tv <- case val tenv te of
+    tv <- case val (ctxEnv ctx) te of
             Left failure -> putStrLn failure >> exitFailure
             Right tv -> pure tv
     putStrLn $ "\t+type-v: " <> show tv
     putStrLn $ "\t+evaluating value..."
-    v <- case val venv exp' of
+    v <- case val (ctxEnv ctx) exp' of
              Left failure -> putStrLn failure >> exitFailure 
              Right v -> pure v
     putStrLn $ "\t+expr-elab-v: " <> show v
     putStrLn $ "\t+reading back..."
-    vexp <- case  readbackVal venv tv v of
+    vexp <- case  readbackVal ctx tv v of
              Left failure -> putStrLn failure >> exitFailure 
              Right vexp -> pure vexp
     putStrLn $ "\t+FINAL: " <> show vexp
-    return ((name, tv):tenv, (name,v):venv)
+    return (CtxDef name tv v ctx)
   return ()
 
 
@@ -374,15 +375,26 @@ data Neutral =
 
 data Ctx = CtxEmpty | CtxDef Name Type Val Ctx | CtxBind Name Type Ctx
 
-lookupType :: Ctx -> Name -> Maybe Val
-lookupType (CtxEmpty) _ = Nothing
-lookupType (CtxDef n t _ ctx') name = 
-    if n == name then Just t else lookupType ctx' name
-lookupType (CtxBind n t ctx') name = 
-    if n == name then Just t else lookupType ctx' name
+instance Show Ctx where
+    show (CtxEmpty) = "[]"
+    show (CtxDef n t v ctx') = show n <> show ":" <> show t <> "=" <> show v <> "; " <> show ctx'
+    show (CtxBind n t ctx') = show n <> show ":" <> show t <> "; " <> show ctx'
 
-extendCtx :: Ctx -> Name -> Type -> Ctx
-extendCtx ctx name ty = CtxBind name ty  ctx
+ctxLookupType :: Ctx -> Name -> Maybe Val
+ctxLookupType (CtxEmpty) _ = Nothing
+ctxLookupType (CtxDef n t _ ctx') name = 
+    if n == name then Just t else ctxLookupType ctx' name
+ctxLookupType (CtxBind n t ctx') name = 
+    if n == name then Just t else ctxLookupType ctx' name
+
+type Environment = [(Name, Val)]
+ctxEnv :: Ctx -> Environment
+ctxEnv CtxEmpty = []
+ctxEnv (CtxDef n t v ctx') = (n,v):ctxEnv ctx'
+ctxEnv (CtxBind n t ctx') = (n, NEU t (Nvar n)):ctxEnv ctx'
+
+ctxExtend :: Ctx -> Name -> Type -> Ctx
+ctxExtend ctx name ty = CtxBind name ty  ctx
 
 -- 7.3.1
 -- | evaluate closure, instantiating bound variable with v
@@ -391,7 +403,7 @@ valOfClosure (ClosureShallow x f) v = f v
 valOfClosure (ClosureDeep env x body) v = val ((x,v):env) body
 
 
-val :: [(Name, IsThisValOrType)] -> Exp -> Either String Val
+val :: Environment -> Exp -> Either String Val
 val env (Eannotate t e) = val env e
 val env (Euniv) = return $ UNIV
 val env (Epi x etdom etcodom) = do
@@ -532,13 +544,22 @@ doIndNat target@(NEU NAT neutv) motive base step = do
 
 
 -- 7.3.3 READING BACK
+
 fresh :: [Name] -> Name -> Name
 fresh used x = 
   case find (== x) used of
     Just _ -> fresh used (x <> "*")
     Nothing -> x
 
-readbackVal :: [(Name, Type)] -> Type -> Val -> Either String Exp
+ctxNames :: Ctx -> [Name]
+ctxNames CtxEmpty = []
+ctxNames (CtxBind n t ctx')  = n:ctxNames ctx'
+ctxNames (CtxDef n t v ctx')  = n:ctxNames ctx'
+
+ctxFresh :: Ctx -> Name -> Name
+ctxFresh ctx name = fresh (ctxNames ctx) name 
+
+readbackVal :: Ctx -> Type -> Val -> Either String Exp
 
 -- | NAT
 readbackVal ctx NAT ZERO = return E0
@@ -547,14 +568,14 @@ readbackVal ctx NAT (ADD1 n) = do
     return $ Eadd1 en
 readbackVal ctx (PI ta a2tb) f = do
     -- | get closure argument name
-    let aident = fresh (map fst ctx) (closureArgumentName a2tb)
+    let aident = ctxFresh ctx (closureArgumentName a2tb)
     let aval = NEU ta (Nvar aident)
     -- | notice how data is propagated at both value and type level
     -- AT THE SAME TIME!
     tb <- valOfClosure a2tb aval
     traceM $ "doAp in readbackVal: PI"
     fout <- doAp f aval
-    expr_fout <- readbackVal ((aident,ta):ctx) tb fout
+    expr_fout <- readbackVal (ctxExtend ctx aident ta) tb fout
     return $ Elam aident expr_fout
 readbackVal ctx (SIGMA ta a2tb) p = do
     -- | get closure argument name
@@ -583,18 +604,18 @@ readbackVal ctx UNIV (EQ tA from to) = do
     return $ Eeq etA efrom eto
 readbackVal ctx UNIV (SIGMA ta a2tb) = do
     eta <- readbackVal ctx UNIV ta
-    let aident = fresh (map fst ctx) (closureArgumentName a2tb)
+    let aident = ctxFresh ctx (closureArgumentName a2tb)
     let aval = NEU ta (Nvar aident)
     tb <- valOfClosure a2tb aval
-    etb <- readbackVal ((aident,ta):ctx) UNIV tb
+    etb <- readbackVal (ctxExtend ctx aident ta) UNIV tb
     return $ Esigma aident eta etb
 -- | exactly the same as sigma.
 readbackVal ctx UNIV (PI ta a2tb) = do
     eta <- readbackVal ctx UNIV ta
-    let aident = fresh (map fst ctx) (closureArgumentName a2tb)
+    let aident = ctxFresh ctx (closureArgumentName a2tb)
     let aval = NEU ta (Nvar aident)
     tb <- valOfClosure a2tb aval
-    etb <- readbackVal ((aident,ta):ctx) UNIV tb
+    etb <- readbackVal (ctxExtend ctx aident ta) UNIV tb
     return $ Epi aident eta etb
 readbackVal ctx t1 (NEU t2 ne) = readbackNeutral ctx ne
 -- | Inconsistent theory? x(
@@ -606,7 +627,7 @@ readbackVal ctx t v =
 -- | Read back a neutral expression as syntax.
 -- | users are:
 --     readbackVal Absurd
-readbackNeutral :: [(Name, Type)] -> Neutral -> Either String Exp
+readbackNeutral :: Ctx -> Neutral -> Either String Exp
 readbackNeutral ctx (Nvar x) = return $ Eident x
 readbackNeutral ctx (Nap nf (TyAndVal nxty nx)) = do
   ef <- readbackNeutral ctx nf
@@ -645,9 +666,9 @@ readbackNeutral ctx (Nindabsurd target
 
 -- | having NBE is vital during type checking, since we want to
 -- normalize type-level terms to type check!
-nbe :: [(Name, Type)] -> Type -> Exp -> Either String Exp
+nbe :: Ctx -> Type -> Exp -> Either String Exp
 nbe ctx t e = do 
-    v <- val ctx e
+    v <- val (ctxEnv ctx) e
     readbackVal ctx t v 
 
 
@@ -663,11 +684,11 @@ nbe ctx t e = do
 -- that Exp will be Eannotate. We can't return a tuple (Type, Exp)
 -- since check will call synth and synth will call check compositionally to 
 -- build new annotated ASTs.
-synth :: [(Name, Type)] -> Exp -> Either String Exp
+synth :: Ctx -> Exp -> Either String Exp
 -- recall that Type = Val
 synth ctx (Eannotate ty e) = do
     ty' <- check ctx ty UNIV -- check that ty has type universe (is at the right level)
-    tyv <- val ctx ty' -- crunch what tout is
+    tyv <- val (ctxEnv ctx) ty' -- crunch what tout is
     eout <- check ctx e tyv  -- use it to check what eout is, since we can only check AGAINST a normal form.
     -- | why not read back tyv, instead of using un-normalized ty'?
     return $ (Eannotate ty' eout)
@@ -677,8 +698,8 @@ synth ctx Euniv = return $ Eannotate Euniv Euniv
 -- | What does Esigma eliminate?
 synth ctx (Esigma x ta a2tb) = do 
     ta' <- check ctx ta UNIV
-    tav <- val ctx ta'
-    a2tb' <- check ((x,tav):ctx) a2tb UNIV
+    tav <- val (ctxEnv ctx) ta'
+    a2tb' <- check (ctxExtend ctx x tav) a2tb UNIV
     return $ Eannotate Euniv (Esigma x ta' a2tb')
 -- | my implementation.
 -- synth ctx (Ecar p) = do
@@ -692,7 +713,7 @@ synth ctx (Esigma x ta a2tb) = do
 --     return (Eannotate tleft (Ecar p))
 synth ctx (Ecar p) = do
     (Eannotate pty pelab) <- synth ctx p
-    ptyv <- val ctx pty
+    ptyv <- val (ctxEnv ctx) pty
     case ptyv of
       SIGMA lv _ -> do 
           le <- readbackVal ctx UNIV lv
@@ -706,10 +727,10 @@ synth ctx (Ecar p) = do
 -- | Interesting, I need to produce a value from a closure!
 synth ctx (Ecdr p) = do
     (Eannotate pty pelab) <- synth ctx p
-    ptyv <- val ctx pty
+    ptyv <- val (ctxEnv ctx) pty
     case ptyv of
       SIGMA lt rtclosure -> do 
-          lv <- val ctx (Ecar p)
+          lv <- val (ctxEnv ctx) (Ecar p)
           rt <- valOfClosure rtclosure lv
           rte <- readbackVal ctx UNIV rt
           return (Eannotate rte (Ecar pelab))
@@ -723,8 +744,8 @@ synth ctx (Enat) = return $ Eannotate Euniv Enat
 synth ctx (Eindnat etarget emotive ebase estep) = do
     targetout <- check ctx etarget NAT
     motiveout <- check ctx emotive (PI NAT (ClosureShallow "_" $ \_ -> return UNIV))
-    motivev <- val ctx motiveout
-    targetv <- val ctx targetout
+    motivev <- val (ctxEnv ctx) motiveout
+    targetv <- val (ctxEnv ctx) targetout
 
     traceM "doAp in synth Eindnat: baseout"
     baseout <- doAp motivev ZERO >>= check ctx ebase 
@@ -738,7 +759,7 @@ synth ctx (Eindnat etarget emotive ebase estep) = do
 -- | introduction for equality. Why is this in synthesis mode?
 synth ctx (Eeq te frome toe) = do
     tout <- check ctx te UNIV
-    toutv <- val ctx tout
+    toutv <- val (ctxEnv ctx) tout
     fromout <- check ctx frome toutv
     toout <- check ctx toe toutv
     return $ (Eannotate Euniv (Eeq tout fromout toout))
@@ -754,7 +775,7 @@ synth ctx (Ereplace etarget emotive ebase) = do
     (Eannotate ttarget etargetout) <- synth ctx etarget
     check ctx ttarget UNIV -- check that lives in UNIV
     -- | pattern match the equality object to learn types of motive and base
-    etargetoutv <- val ctx etargetout
+    etargetoutv <- val (ctxEnv ctx) etargetout
     (x, from, to) <- case etargetoutv of
         EQ x from to -> return (x, from, to)
         _ -> Left $ "expected (replace  to destructure an EQ value; " <>
@@ -762,7 +783,7 @@ synth ctx (Ereplace etarget emotive ebase) = do
     -- motive :: X -> UNIV
     motiveout <- check ctx emotive 
                   (PI x $ ClosureShallow "_" $ \_ -> return UNIV)
-    motivev <- val ctx motiveout
+    motivev <- val (ctxEnv ctx) motiveout
     traceM "doAp in ereplace: baseout"
     baseout <- doAp motivev from >>= check ctx ebase
 
@@ -782,8 +803,8 @@ synth ctx (Ereplace etarget emotive ebase) = do
 
 synth ctx (Epi x edom ecodom) = do
     domout <- check ctx edom UNIV
-    domtv <- val ctx domout
-    codomout <- check ((x,domtv):ctx) ecodom UNIV
+    domtv <- val (ctxEnv ctx) domout
+    codomout <- check (ctxExtend ctx x domtv) ecodom UNIV
     return (Eannotate Euniv (Epi x domout codomout))
 
 
@@ -799,24 +820,20 @@ synth ctx (Eindabsurd etarget emotive) = do
     
 synth ctx Eatom = return (Eannotate Euniv Eatom)
 synth ctx (Eap ef ex) = do
-    fout <- synth ctx ef
-    traceM $ "Eap fout: " <> show fout
-    traceM "val in Eap: vf"
-    vf <- val ctx fout
-    traceM $ "done vf: " <> show vf
-    (tin, toutclosure) <- case vf of
+    (Eannotate ft fe) <- synth ctx ef
+    ftv <- val (ctxEnv ctx) ft
+    (tin, toutclosure) <- case ftv of
         PI tin tout -> return (tin, tout)
         notPi -> Left $ "expected function type to be PI type at" <>
-                  "|" <> show fout <> "|, found type" <> 
+                  "|" <> show fe <> "|, found type" <> 
                   "|" <> show notPi <> "|"
     xout <- check ctx ex tin
-    traceM "val in Eap: xv"
-    xv <- val ctx xout
+    xv <- val (ctxEnv ctx) xout
     tout <- valOfClosure toutclosure xv >>= readbackVal ctx UNIV
-    return $ Eannotate tout (Eap fout xout)
+    return $ Eannotate tout (Eap fe xout)
 
 synth ctx (Eident name) = 
-    case lookup name ctx of
+    case ctxLookupType ctx name of
       Just t -> do
           te <- readbackVal ctx UNIV t
           return $ Eannotate te (Eident name)
@@ -828,7 +845,7 @@ synth ctx e =
 
 -- | check pattern matches on the value
 -- cons is checked because it is an introduction rule.
-check :: [(Name, Type)] -> Exp -> Type -> Either String Exp
+check :: Ctx -> Exp -> Type -> Either String Exp
 check ctx  (Econs ea ed) t = do
     (ta, tdclosure) <- case t of
       SIGMA ta tdclosure -> return (ta, tdclosure)
@@ -836,7 +853,7 @@ check ctx  (Econs ea ed) t = do
                    "Found |" <> show (Econs ea ed) <> "|" <>
                    "to have type |" <> show notSigma <> "|"
     aout <- check ctx ea ta
-    td <- val ctx ea >>= valOfClosure tdclosure
+    td <- val (ctxEnv ctx) ea >>= valOfClosure tdclosure
     dout <- check ctx ed td
     return $ (Econs aout dout)
 check ctx E0 t =
@@ -875,7 +892,7 @@ check ctx (Elam x body) t =
     PI ta tbclosure -> do
         let vx = NEU ta (Nvar x)
         tb <- valOfClosure tbclosure vx
-        outbody <- check ((x,ta):ctx) body tb
+        outbody <- check (ctxExtend ctx x ta) body tb
         return $ (Elam x outbody)
     notPi -> 
       Left $ "expected lambda to have type PI, but found type " <>
@@ -893,7 +910,7 @@ check ctx (Equote x) t =
 -- | generic check fallback
 check ctx e texpectedv = do
     eout@(Eannotate te _) <- synth ctx e
-    tev <- val ctx te
+    tev <- val (ctxEnv ctx) te
     -- | check that the types are equal.
     case convert ctx UNIV tev texpectedv of
       Right () -> pure ()
@@ -905,7 +922,7 @@ check ctx e texpectedv = do
     return $ eout
 
 -- convert t v1 v2 = ...
-convert :: [(Name, Type)] -> Val -> Val -> Val -> Either String ()
+convert :: Ctx -> Val -> Val -> Val -> Either String ()
 convert ctx t v1 v2 = do
     e1 <- readbackVal ctx t v1
     e2 <- readbackVal ctx t v2
@@ -914,4 +931,3 @@ convert ctx t v1 v2 = do
       False -> Left $ "expected α equivalence between " <>
                       "|" <> show e1 <> "| and " <>
                       "|" <> show e2 <> "|."
-
