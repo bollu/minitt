@@ -284,7 +284,7 @@ main = do
   putStrLn $ "type checking and evaluating..."
   foldM' CtxEmpty decls $ \ctx (name,exp) -> do
     putStrLn $ "***" <> name <> ": " <> show exp <> "***"
-    putStrLn $ "\t+synthesizing type..."
+    putStrLn $ "\t+elaborating..."
     (te, exp') <- case synth ctx exp of
             Left failure -> putStrLn failure >> exitFailure
             Right (Eannotate te exp') -> pure (te, exp')
@@ -292,22 +292,23 @@ main = do
                 putStrLn $ "expected Eannotate from synth, " <>
                     "found |" <> show notEannotate <> "|."
                 exitFailure
-    putStrLn $ "\t+type-e: " <> show te
-    putStrLn $ "\t+defn-elab-e: " <> show exp'
-    putStrLn $ "\t+evaluating type..."
+    putStrLn $ "\t+elaborated: " <> show (Eannotate te exp')
+    putStr $ "\t+Evaluating type..."
     tv <- case val (ctxEnv ctx) te of
-            Left failure -> putStrLn failure >> exitFailure
+            Left failure -> putStrLn "***ERR***" >> putStrLn failure >> exitFailure
             Right tv -> pure tv
-    putStrLn $ "\t+type-v: " <> show tv
-    putStrLn $ "\t+evaluating value..."
+    -- putStrLn $ "\t+type-v: " <> show tv
+    putStr $ "OK. "
+    putStr $ "Evaluating value..."
     v <- case val (ctxEnv ctx) exp' of
              Left failure -> putStrLn failure >> exitFailure 
              Right v -> pure v
-    putStrLn $ "\t+expr-elab-v: " <> show v
-    putStrLn $ "\t+reading back..."
+    putStr $ "OK."
+    putStr $ " Reading back..."
     vexp <- case  readbackVal ctx tv v of
              Left failure -> putStrLn failure >> exitFailure 
              Right vexp -> pure vexp
+    putStr $ "OK.\n"
     putStrLn $ "\t+FINAL: " <> show vexp
     return (CtxDef name tv v ctx)
   return ()
@@ -461,10 +462,8 @@ val env (Eident n) =
     Just v -> Right v
     Nothing -> Left $ "unknown variable |" <> n <> "|"
 val env (Eap f x) = do
-    traceM $ "doAp: " <> show (Eap f x)
     vf <- val env f
     vx <- val env x
-    traceM $ "doAp in val of Eap: f|" <> show vf <> "| x|" <> show vx <> "|"
     doAp vf vx
 -- val env e = Left $ "unknown expression for val: |" <> show e <> "|"
       
@@ -502,7 +501,6 @@ doReplace :: Val -- target
           -> Either String Val
 doReplace (SAME) motive base = return base
 doReplace (NEU (EQ tA from to) neutvtarget) motive base = do
-    traceM "doAp in doReplace"
     tto <- doAp motive to
     tfrom <- doAp motive from
     return $ NEU tto $ Nreplace neutvtarget 
@@ -515,11 +513,9 @@ doReplace (NEU (EQ tA from to) neutvtarget) motive base = do
 indNatStepType :: Val -> Val
 indNatStepType motive = 
   PI NAT $ ClosureShallow "n" $ \n -> do
-             traceM "doAp in indNatStepType: lhs"
              lhs <- (doAp motive n)
              -- | TODO: why is this a closure? Why can't this be
              -- rhs <- doAp motive (ADD1 n)
-             traceM "doAp in indNatStepType: rhs"
              let rhs = ClosureShallow  "_" $ \_ -> doAp motive (ADD1 n)
              return $ PI lhs rhs
 
@@ -529,10 +525,8 @@ doIndNat :: Val -> Val -> Val -> Val -> Either String Val
 doIndNat ZERO motive base step = return $ base
 doIndNat (ADD1 n) motive base step = do 
     -- step N _
-    traceM "doAp in doIntNat: stepN_"
     stepN_ <- doAp step n
     indn <- doIndNat n motive base step
-    traceM "doAp in doIntNat: final"
     doAp stepN_ indn
 doIndNat target@(NEU NAT neutv) motive base step = do
     retty <- doAp motive target
@@ -573,7 +567,6 @@ readbackVal ctx (PI ta a2tb) f = do
     -- | notice how data is propagated at both value and type level
     -- AT THE SAME TIME!
     tb <- valOfClosure a2tb aval
-    traceM $ "doAp in readbackVal: PI"
     fout <- doAp f aval
     expr_fout <- readbackVal (ctxExtend ctx aident ta) tb fout
     return $ Elam aident expr_fout
@@ -747,11 +740,9 @@ synth ctx (Eindnat etarget emotive ebase estep) = do
     motivev <- val (ctxEnv ctx) motiveout
     targetv <- val (ctxEnv ctx) targetout
 
-    traceM "doAp in synth Eindnat: baseout"
     baseout <- doAp motivev ZERO >>= check ctx ebase 
     stepout <- check ctx estep (indNatStepType motivev)
 
-    traceM "doAp in synth Eindnat: motivetargetve"
     motivetargetve <- doAp motivev targetv >>= readbackVal ctx UNIV
     return (Eannotate motivetargetve 
                       (Eindnat targetout motiveout baseout stepout))
@@ -784,10 +775,8 @@ synth ctx (Ereplace etarget emotive ebase) = do
     motiveout <- check ctx emotive 
                   (PI x $ ClosureShallow "_" $ \_ -> return UNIV)
     motivev <- val (ctxEnv ctx) motiveout
-    traceM "doAp in ereplace: baseout"
     baseout <- doAp motivev from >>= check ctx ebase
 
-    traceM "doAp in ereplace: toout"
     toout <- doAp motivev to >>= readbackVal ctx UNIV
     return (Eannotate toout (Ereplace etargetout motiveout baseout))
 
