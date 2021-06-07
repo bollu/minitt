@@ -1,5 +1,7 @@
 {-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
 import Control.Applicative
+import System.Environment
+import System.Exit
 import Data.List
 import Data.Maybe
 import Data.Map (Map,(!),filterWithKey,elems)
@@ -332,6 +334,10 @@ showDecls (MutualDecls _ defs) =
 showDecls (OpaqueDecl i) = text "opaque" <+> text i
 showDecls (TransparentDecl i) = text "transparent" <+> text i
 showDecls TransparentAllDecl = text "transparent_all"
+
+
+instance Show Decls where
+  show = render . showDecls
 
 instance Show Val where
   show = render . showVal
@@ -856,4 +862,84 @@ infer e = case e of
     checkDecls d
     local (addDecls d) $ infer t
   _ -> throwError ("infer " ++ show e)
+
+
+-- PARSER -- 
+-- PARSER -- 
+-- PARSER -- 
+-- PARSER -- 
+-- PARSER -- 
+-- PARSER -- 
+toToplevel :: AST -> Either Error [Decls]
+toToplevel = tuplefor parseDecls
+
+locUnk :: Loc; locUnk = Loc 1 1 1
+
+parseDecls  :: AST -> Either Error Decls
+parseDecls ast = do
+  head <- tuplehd atom ast
+  case head of 
+    "rec" -> do
+        ((), ds) <- tuple2f astignore (tuplefor parseDecl) ast
+        return $ MutualDecls locUnk ds
+    _ -> do 
+        d <- parseDecl ast
+        return $ MutualDecls locUnk [d]
+
+parseDecl :: AST -> Either Error Decl
+parseDecl ast = do
+  ((), x, ty, val) <- tuple4f (aststr "def") atom parseTer parseTer ast
+  return (x, (ty, val))
+
+parseTer :: AST -> Either Error Ter
+parseTer ast = do
+  head <- tuplehd atom ast
+  case head of 
+      "Π" -> do
+        -- (Π x a b)
+        ((), x, a, b) <- tuple4f astignore atom parseTer parseTer ast
+        return $ Pi $ Lam x a b
+      "λ" -> do
+        -- (λ x a b)
+        ((), x, a, b) <- tuple4f astignore atom parseTer parseTer ast
+        return $ Lam x a b
+  
+-- MAIN --
+-- MAIN --
+-- MAIN --
+-- MAIN --
+-- MAIN --
+
+
+main :: IO ()
+main = do
+  args <- getArgs
+  path <- case args of
+           [path] -> pure path
+           _ -> (print "expected single file path to parse") >> exitFailure
+  file <- readFile path
+  putStrLn $"file contents:"
+  putStrLn $ file
+  putStrLn $ "parsing..."
+  ast <- case AST.parse file of
+           Left failure -> print failure >> exitFailure
+           Right success -> pure success
+  putStrLn $ astPretty ast
+
+  putStrLn $ "\nconvering to intermediate repr..."
+  decls <- case parseDecls ast of
+            Left failure -> print failure >> exitFailure
+            Right ds -> pure ds
+  putStrLn $ show decls
+  -- forM_ decls  $ \(Decl name ty stx) -> do
+  --       putStrLn $ "\ntype checking |" ++ name  ++ "|..."
+  --       let ctx = []
+  --       case tycheck ctx stx ty of
+  --         Left err -> do putStrLn $ "  error ✗ " ++ err;
+  --         Right () -> do 
+  --           putStrLn $ "  success ✓";
+  --           let outstx = nbe ty stx 
+  --           putStr $ "  output: "
+  --           putStrLn $ show outstx
+  return ()
 

@@ -244,6 +244,13 @@ tuple5f f0 f1 f2 f3 f4 ast = do
 astignore :: AST -> Either Error ()
 astignore _ = return ()
 
+aststr :: String -> AST -> Either Error ()
+aststr s (Atom span x) = 
+    case s == x of
+      True -> return ()
+      False -> Left $ errAtSpan span $ 
+        "expected string |" ++ s ++ "|. found |" ++ x ++ "|"
+
 -- | create a list of tuple values
 tuplefor :: (AST -> Either Error a) -> AST -> Either Error [a]
 tuplefor f (Atom span _) =
