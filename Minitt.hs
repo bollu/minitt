@@ -2,6 +2,7 @@
 import Control.Applicative
 import System.Environment
 import System.Exit
+import Data.Char(isUpper)
 import Data.List
 import Data.Maybe
 import Data.Map (Map,(!),filterWithKey,elems)
@@ -97,7 +98,8 @@ data Ter = Pi Ter -- TODO: ?
          | Lam Ident Ter Ter -- \x: T. e
          | Where Ter Decls -- TODO: ?
          | Var Ident -- x
-         | U -- Unit
+         -- | U -- Unit
+         | U -- universe?
            -- Sigma types:
          | Sigma Ter -- TODO: ?
          | Pair Ter Ter -- (a, b)
@@ -135,7 +137,8 @@ mkWheres (d:ds) e = Where (mkWheres ds e) d
 -- | Values
 
 data Val = VU
-         | Ter Ter Env
+         -- | split/lambda/etc. that is _unapplied_
+         | Ter Ter Env -- these are also neutral -_^
          | VPi Val Val
          | VSigma Val Val
          | VPair Val Val
@@ -147,7 +150,7 @@ data Val = VU
          | VOpaque Ident Val
          | VFst Val
          | VSnd Val
-         | VSplit Val Val
+         | VSplit Val Val -- Split _applied_ to a neutral.
          | VApp Val Val
          | VLam Ident Val Val
          | VIdJ Val Val Val Val Val Val
@@ -429,10 +432,10 @@ eval :: Env -> Ter -> Val
 eval rho@(Env (_,_)) v = case v of
   U                   -> VU
   App r s             -> app (eval rho r) (eval rho s)
-  Var i
+  Var i               -> look i rho
     -- | TODO: do we need VOpaque anymore?
     -- | i `Set.member` os -> VOpaque i (lookType i rho)
-    | otherwise       -> look i rho
+    -- | otherwise       -> look i rho
   Pi t@(Lam _ a _)    -> VPi (eval rho a) (eval rho t)
   Sigma t@(Lam _ a _) -> VSigma (eval rho a) (eval rho t)
   Pair a b            -> VPair (eval rho a) (eval rho b)
@@ -440,7 +443,8 @@ eval rho@(Env (_,_)) v = case v of
   Snd a               -> sndVal (eval rho a)
   Where t decls       -> eval (defWhere decls rho) t
   Con name ts         -> VCon name (map (eval rho) ts)
-  Lam{}               -> Ter v rho
+  -- | constructors? 
+  Lam{}               -> Ter v rho 
   Split{}             -> Ter v rho
   Sum{}               -> Ter v rho
   Undef{}             -> Ter v rho
@@ -892,6 +896,8 @@ parseDecl ast = do
   return (x, (ty, val))
 
 parseTer :: AST -> Either Error Ter
+parseTer (Atom _ "U") = return $ U
+parseTer (Atom _ x) = return $ Var x
 parseTer ast = do
   head <- tuplehd atom ast
   case head of 
@@ -899,10 +905,53 @@ parseTer ast = do
         -- (Π x a b)
         ((), x, a, b) <- tuple4f astignore atom parseTer parseTer ast
         return $ Pi $ Lam x a b
+      "$" -> do
+        -- ($ f x)
+        ((), f, x) <- tuple3f astignore parseTer parseTer ast
+        return $ App f x
       "λ" -> do
         -- (λ x a b)
         ((), x, a, b) <- tuple4f astignore atom parseTer parseTer ast
         return $ Lam x a b
+      "where" -> do
+        -- (where e decls)
+        ((), e, ds) <- tuple3f astignore parseTer parseDecls ast
+        return $ Where e ds
+      "Σ" -> do
+        -- (Σ x a b)
+        ((), x, a, b) <- tuple4f astignore atom parseTer parseTer ast
+        return $ Sigma $ Lam x a b
+      "," -> do
+        -- (, x y)
+        ((), l, r) <- tuple3f astignore parseTer parseTer ast
+        return $ Pair l r
+      "pair" -> do
+        -- (pair x y)
+        ((), l, r) <- tuple3f astignore parseTer parseTer ast
+        return $ Pair l r
+      "fst" -> do
+        -- (fst x)
+        ((), x) <- tuple2f astignore parseTer ast
+        return $ Fst x
+      "snd" -> do
+        -- (snd x)
+        ((), x) <- tuple2f astignore parseTer ast
+        return $ Fst x
+      s -> do
+          case Data.Char.isUpper (s !! 0) of
+            True -> do
+              -- (Con v1 v2 ... vn)
+              vs <- tupletail parseTer ast
+              return $ Con s vs
+            False -> do
+                -- (f x1 x2 ... xn) ~ (((f x1) x2) ... xn)
+                args <- tupletail parseTer ast
+                case length args of
+                  0 -> Left $ errAtSpan (astSpan ast) $ 
+                         "expected function call to have at least one argument."
+                  _ -> return ()
+                return $ foldl App (Var s) args
+
   
 -- MAIN --
 -- MAIN --
