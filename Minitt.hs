@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
+
 import Control.Applicative
 import System.Environment
 import System.Exit
@@ -898,6 +898,13 @@ parseDecl ast = do
 parseTer :: AST -> Either Error Ter
 parseTer (Atom _ "U") = return $ U
 parseTer (Atom _ x) = return $ Var x
+parseTer (AST span _ (Atom _ "Π"):x:a:b[]) = do
+    return $ Pi $ Lam x a b
+-- [sum bool [True] [False]]
+-- [sum list [Cons [x bool] [y list]]
+--           [Nil]
+-- parseTer (AST span _ (Atom _ "sum"):name:xs) = do
+
 parseTer ast = do
   head <- tuplehd atom ast
   case head of 
@@ -937,6 +944,15 @@ parseTer ast = do
         -- (snd x)
         ((), x) <- tuple2f astignore parseTer ast
         return $ Fst x
+      "mk" -> do -- con
+        vs <- tupletail parseTer ast
+        return $ Con s vs
+      -- "split" -> do -- split
+      --   vs <- tupletail atom ast
+      --   return $ Sum Split
+      -- "sum" -> do -- sum / data
+      --   vs <- tupletail atom ast
+      --   return $ Sum locUnk vs
       s -> do
           case Data.Char.isUpper (s !! 0) of
             True -> do
@@ -953,6 +969,9 @@ parseTer ast = do
                 return $ foldl App (Var s) args
 
   
+-- [nat [x1 t1] [x2 t2] ... [xn tn] [foo]
+parseLabel :: AST -> Either Error Label
+parseLabel (AST 
 -- MAIN --
 -- MAIN --
 -- MAIN --
