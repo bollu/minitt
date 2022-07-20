@@ -11,6 +11,11 @@ I finally managed to piece together a curricula for learning how to implement de
 1. CubicalTT from cubicalTT
 1. [Pfenning, lecture notes handout on bidirectional typing (great)!](https://www.cs.cmu.edu/~fp/courses/15312-f04/handouts/15-bidirectional.pdf)
 
+Reading on inductive types: Literally everything by Dyjber
+1. Inductive Definitions in the system Coq Rules and Properties
+1. Indexed induction–recursion
+1. Eliminating dependent pattern matching without K
+
 
 Reading on normalization by evaluation:
 
