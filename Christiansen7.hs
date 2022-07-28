@@ -214,43 +214,43 @@ instance Show Exp where
 type Choice = (String, Exp)
 
 
-toExp :: AST -> Either Error Exp
-toExp (Atom span "0") = Right $ E0
-toExp (Atom span "nat") = Right $ Enat
-toExp (Atom span ident) = Right $ Eident ident
-toExp tuple = do
+elaborateExp :: AST -> Either Error Exp
+elaborateExp (Atom span "0") = Right $ E0
+elaborateExp (Atom span "nat") = Right $ Enat
+elaborateExp (Atom span ident) = Right $ Eident ident
+elaborateExp tuple = do
   head  <- tuplehd atom tuple
   case head of 
     "λ" -> do 
-      ((), x, body) <- tuple3f astignore atom toExp tuple
+      ((), x, body) <- tuple3f astignore atom elaborateExp tuple
       return $ Elam x body
     "$" -> do 
-      ((), f, x) <- tuple3f astignore toExp toExp tuple
+      ((), f, x) <- tuple3f astignore elaborateExp elaborateExp tuple
       return $ Eap f x
     "∈" -> do 
-      ((), t, e) <- tuple3f astignore toExp toExp tuple
+      ((), t, e) <- tuple3f astignore elaborateExp elaborateExp tuple
       return $ Eannotate t e
     "+1" -> do 
-      ((), e) <- tuple2f astignore toExp tuple
+      ((), e) <- tuple2f astignore elaborateExp tuple
       return $ Eadd1 e
     "→" -> do 
-      ((), ti, to) <- tuple3f astignore toExp toExp tuple
+      ((), ti, to) <- tuple3f astignore elaborateExp elaborateExp tuple
       return $ Epi "_" ti to
     "ind-nat" -> do
         ((), target, motive, base, step) <- tuple5f 
-            astignore toExp toExp toExp toExp tuple
+            astignore elaborateExp elaborateExp elaborateExp elaborateExp tuple
         return $ Eindnat target motive base step
 
     -- "rec" -> do 
     --   ((), ty, target, base, step) <- 
-    --     tuple5f astignore toType toExp toExp toExp tuple
+    --     tuple5f astignore toType elaborateExp elaborateExp elaborateExp tuple
     --   return $ Erec ty target base step
     _ -> Left $ "unknown special form |" ++ head ++ 
                   "| in " ++ "|" ++ astPretty tuple ++ "|"
 
 
-toDecl :: AST -> Either Error (Name, Exp)
-toDecl = tuple2f atom toExp
+elaborate :: AST -> Either Error (Name, Exp)
+elaborate = tuple2f atom elaborateExp
 
 
 foldM' :: (Monad m, Traversable t) => 
@@ -277,7 +277,7 @@ main = do
   putStrLn $ astPretty ast
 
   putStrLn $ "convering to intermediate repr..."
-  decls <- case tuplefor toDecl ast of
+  decls <- case tuplefor elaborate ast of
             Left failure -> putStrLn failure >> exitFailure
             Right d -> pure d
 
