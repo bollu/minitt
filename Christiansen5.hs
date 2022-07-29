@@ -1,3 +1,5 @@
+-- STLC + bidirectional typing
+-- runhaskell Christiansen5.hs examples/christiansen5.rkt
 
 import System.Environment
 import System.Exit
@@ -127,7 +129,7 @@ check :: [(Name, Type)] -> Exp -> Type -> Either String ()
 -- | → constructor
 check gamma e@(Elam x b) t = 
   case t of 
-    Tarrow tl tr -> check ((x,tl):gamma) b tr
+    Tarrow tl tr -> check ((x,tl):gamma) b tr -- check the body by binding `x` to `tl`.
     _ -> Left $ "Need non-arrow type for lambda |" <> show e <> "|. Found type |" <> show t <> "|"
 
 -- | nat constructors: +1, 0
@@ -177,6 +179,7 @@ synth gamma eap@(Eap f x) = do
     _ -> Left $ "rator expected to have arrow type. found type |" <> show tf <> "|, in: " <> show eap
 
 -- | I feel like I CAN write type synthesis for |0| and |add1|. I don't know why this is NOT DONE.
+-- We don't do this because we generally synthesize for eliminators, and check for constructors.
 synth gamma E0 = return Tnat
 synth gamma (Eadd1 x) = do
   check gamma x Tnat

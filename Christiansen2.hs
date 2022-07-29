@@ -1,3 +1,6 @@
+-- runhaskell Christiansen2.hs examples/untyped/christiansen-sec1.rkt
+-- runhaskell Christiansen2.hs examples/untyped/christiansen-sec2.rkt
+
 import System.Environment
 import System.Exit
 import Data.List
@@ -82,13 +85,16 @@ main = do
 -- 6.2: Values
 type Env a = [(Name, a)]
 
+-- | Domain of values, can either be closures (created from lambdas),
+-- or neutral [stuck terms], which are either variables whose values are unknown,
+-- or applications which cannot be reduced.
 data Val = VClosure CLOSURE | VNeutral NEUTRAL
 
 instance Show Val where
   show (VClosure c) = show c
   show (VNeutral n) = show n
 
--- | context, \x (Name) -> body (Expr)
+-- | Γ/context (Env Val) |- \x (Name) -> body (Expr)
 data CLOSURE = CLOSURE (Env Val)  Name  Exp
 
 data NEUTRAL = NeutralVar Name | NeutralAp NEUTRAL Val 
@@ -107,19 +113,25 @@ type M a = Either a Name
 
 
 eval :: Env Val -> Exp -> Either String Val
+-- Create a closure to evaluate a lambda
 eval env (Elam name rhs) = Right $ VClosure $ CLOSURE env name rhs 
+-- Lookup a value in the environment to evaluate an identifier.
 eval env (Eident name) = 
   case lookup name env of
     Just v -> Right v
     Nothing -> Left $ "unable to find variable |" <> name <> "|"
+-- Evaluate the operator and the operand, and then eval the ap,
+-- such that we take care of neutral terms.
 eval env (Eap rator rand) = do
   vrator <- eval env rator
   vrand <- eval env rand
   evalap vrator vrand
 
 evalap :: Val -> Val -> Either String Val
+-- If we have an honest closure, then evaluate it.
 evalap (VClosure (CLOSURE env x body)) arg = 
     eval ((x,arg):env) body
+-- If we have a neutral, then it's a ball of mud, clump more into the ball of mud!
 evalap (VNeutral f) arg = 
   return $ VNeutral (NeutralAp f arg)
 
@@ -130,12 +142,15 @@ fresh used x =
     Nothing -> x
 
 readBack :: [Name] -> Val -> Either String Exp
+-- generate a fresh name for x, create a neutral variable for x [ball of mud],
+-- then send it into the body. Finally, read the value back.
 readBack names (VClosure (CLOSURE env x ebody)) = do
   let y = fresh names x
   let neutraly = NeutralVar y
   vbody <- eval ((x,(VNeutral neutraly)):env) ebody
   ebody' <- readBack (y:names) vbody
   return $ Elam y ebody'
+-- If we have a neutral, then read it bak as normal.
 readBack names (VNeutral neutral) = 
   readBackNeutral names neutral
 

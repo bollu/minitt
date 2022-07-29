@@ -1,3 +1,5 @@
+-- NBE for dependently typed language.
+-- More of the same =) 
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE FlexibleInstances #-}
 import Prelude hiding(EQ)
@@ -9,7 +11,7 @@ import AST
 import Data.Either
 import Control.Monad(foldM)
 
--- 7. Dependently yped lang
+-- 7. Dependently typed lang
 -- http://davidchristiansen.dk/tutorials/nbe/
 
 instance MonadFail (Either String) where
@@ -161,7 +163,7 @@ alphaEquivGo (Esigma x t b) (Esigma x' t' b') xs xs' n =
         bigger' = (x',fresh):xs'
     in alphaEquivGo b b' bigger bigger' (n+1)
 
--- | WTF is quote
+-- | Quote are just variables.
 alphaEquivGo (Equote x) (Equote x') _ _ n = (x == x', n)
 alphaEquivGo (Econs op args) (Econs op' args') _ _ n = 
     error $ "unimplemented α equivalence for cons"
@@ -858,13 +860,13 @@ check ctx (Eadd1 en) t = do
                       "Found |" <> show notNat <> "|"
 
 -- | same is constructor of EQ
--- | to be honest, i find this dubious. why should these be α equivalent?
+-- | to be honest, I find this dubious. why should these be α equivalent?
 -- i guess the idea is that the only inhabitant of eq is `refl`,
 -- and thus their normal forms must be equal!
 check ctx Esame t = do
   case t of
    (EQ t vfrom vto) -> do
-      convert ctx t vfrom vto
+      convert ctx t vfrom vto -- check that vfrom = vto
       return Esame
    noteq -> Left $ "exected same to have type eq." <>
                     "found |" <> show noteq <> "|"

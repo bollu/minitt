@@ -1,3 +1,5 @@
+-- runhaskell Christiansen6.hs examples/christiansen5.rkt
+-- runhaskell Christiansen6.hs examples/christiansen6.rkt
 import System.Environment
 import System.Exit
 import Data.List
@@ -5,8 +7,9 @@ import AST
 import Data.Either
 import Control.Monad(foldM)
 
--- Bidirectional type checking for STLC from
+-- Bidirectional type checking plus NBE for for STLC from
 -- http://davidchristiansen.dk/tutorials/nbe/
+
 
 type Name = String
 
@@ -262,7 +265,8 @@ readback names Tnat (ADD1 v) = do
   return $ Eadd1 ev
 readback names Tnat (NEU _ ne) = 
   readbackNeutral names ne
--- Tarr
+-- Tarr: If it has a lambda type, always read back into (λx. ...)
+-- [eta expansion]
 readback names (Tarrow ti to) lam = do
   let x = fresh names "x"
   let xv = NEU ti (Nvar x)
