@@ -309,12 +309,8 @@ foldM1' :: (Monoid s, Monad m, Traversable t) =>
   t a -> (s -> a -> m s) -> m s
 foldM1' t f = foldM f mempty t
 
-main :: IO ()
-main = do
-  args <- getArgs
-  path <- case args of
-          [path] -> pure path
-          _ -> (putStrLn "expected single file path to parse") >> exitFailure
+main_ :: String -> IO ()
+main_ path = do
   file <- readFile path
   putStrLn $ "file contents:"
   putStrLn $ file
@@ -360,6 +356,14 @@ main = do
     putStrLn $ "\t+FINAL: " <> show vexp
     return (CtxDef name tv v ctx)
   return ()
+
+main :: IO ()
+main = do
+  args <- getArgs
+  path <- case args of
+          [path] -> pure path
+          _ -> (putStrLn "expected single file path to parse") >> exitFailure
+  main_ path
 
 
 errTyMismatch :: (Exp, TYPE) -> TYPE -> String
