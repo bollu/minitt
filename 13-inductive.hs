@@ -105,7 +105,7 @@ data InductiveDef = InductiveDef {
   inductiveDefName :: InductiveName -- name of the inductive
   , inductiveIndexes :: TelescopeExp -- types of indexes
   , inductiveCtors :: [InductiveCtor]
-}
+} deriving(Eq, Show)
 
 -- Constructor for inductive types
 data InductiveCtor = InductiveCtor {
@@ -113,7 +113,7 @@ data InductiveCtor = InductiveCtor {
   , ctorName :: CtorName -- name of the constructor.
   , ctorTelescope :: TelescopeExp -- telescope of arguments.
   , ctorIndexes :: Exp -- indexes of the inductive type built by the constructor
-}
+} deriving(Eq, Show)
 
 
 
@@ -266,6 +266,9 @@ elaborateExp tuple = do
     "∈" -> do
       ((), t, e) <- tuple3f astignore elaborateExp elaborateExp tuple
       return $ Eannotate t e
+    ":" -> do
+      ((), t, e) <- tuple3f astignore elaborateExp elaborateExp tuple
+      return $ Eannotate t e
     "+1" -> do
       ((), e) <- tuple2f astignore elaborateExp tuple
       return $ Eadd1 e
@@ -278,36 +281,43 @@ elaborateExp tuple = do
         return $ Eindnat target motive base step
     "ind" -> do
       name <- atomget <$> at 1 tuple
-      args <- astDrop 2 tuple
+      args <- unTuple <$> astDrop 2 tuple
       args <- forM args elaborateExp -- elaborate the arguments
       return $ Eind name args
     "mk" -> do
       name <- atomget <$> at 1 tuple
-      args <- astDrop 2 tuple
+      args <- unTuple <$> astDrop 2 tuple
       args <- forM args elaborateExp -- elaborate the arguments
       return $ Emk name args
     "elim" -> do
       name <- atomget <$> at 1 tuple
       val <- at 2 tuple >>= elaborateExp
       motive <- at 3 tuple >>= elaborateExp
-      args <- astDrop 4 tuple
+      args <- unTuple <$> astDrop 4 tuple
       args <- forM args elaborateExp -- elaborate the arguments
       return $ Eelim name val motive args
     _ -> Left $ Error (astSpan tuple) $ "unknown special form |" ++ head ++
                   "| in " ++ "|" ++ astPretty tuple ++ "|"
 
 
-elaborate :: AST -> Either Error (Name, Exp)
-elaborate = tuple2f atom elaborateExp
+elaborateInductiveDef :: AST -> Either Error InductiveDef
+elaborateInductiveDef ast = Left $ Error dummySpan "elaborating inductive"
 
+elaborateToplevel :: AST -> Either Error ([InductiveDef], [(Name, Exp)])
+elaborateToplevel tuple = do
+  head  <- tuplehd atom tuple
+  tail <- astDrop 1 tuple
+  case head of
+    "def" -> do
+      (name, exp) <- tuple2f atom elaborateExp tail
+      return ([], [(name, exp)])
+    "ind" -> do
+      ind <- elaborateInductiveDef tail
+      return $ ([ind], [])
 
 foldM' :: (Monad m, Traversable t) =>
   s -> t a -> (s -> a -> m s) -> m s
 foldM' s t f = foldM f s t
-
-foldM1' :: (Monoid s, Monad m, Traversable t) =>
-  t a -> (s -> a -> m s) -> m s
-foldM1' t f = foldM f mempty t
 
 main_ :: String -> IO ()
 main_ path = do
@@ -321,40 +331,45 @@ main_ path = do
   putStrLn $ astPretty ast
 
   putStrLn $ "convering to intermediate repr..."
-  decls <- case tuplefor elaborate ast of
+  (inductives, decls) <- case tupleFoldMap elaborateToplevel ast of
             Left failure -> putStrLn (showError failure file) >> exitFailure
             Right d -> pure d
 
+  putStrLn $ "processing inductives..."
+  ctx <- foldM' CtxEmpty inductives $ \ctx ind -> do
+           putStrLn $ "***" <> show ind 
+           return (CtxInductiveDef ind ctx)
   putStrLn $ "type checking and evaluating..."
-  foldM' CtxEmpty decls $ \ctx (name,exp) -> do
-    putStrLn $ "***" <> name <> ": " <> show exp <> "***"
-    putStrLn $ "\t+elaborating..."
-    (te, exp') <- case synth ctx exp of
-            Left failure -> putStrLn (showError failure file) >> exitFailure
-            Right (Eannotate te exp') -> pure (te, exp')
-            Right notEannotate -> do
-                putStrLn $ "expected Eannotate from synth, " <>
-                    "found |" <> show notEannotate <> "|."
-                exitFailure
-    putStrLn $ "\t+elaborated: " <> show (Eannotate te exp')
-    putStr $ "\t+Evaluating type..."
-    tv <- case val (ctxEnv ctx) te of
-            Left failure -> putStrLn "***ERR***" >> putStrLn (showError failure file) >> exitFailure
-            Right tv -> pure tv
-    -- putStrLn $ "\t+type-v: " <> show tv
-    putStr $ "OK. "
-    putStr $ "Evaluating value..."
-    v <- case val (ctxEnv ctx) exp' of
-             Left failure -> putStrLn (showError failure file) >> exitFailure
-             Right v -> pure v
-    putStr $ "OK."
-    putStr $ " Reading back..."
-    vexp <- case  readbackVal ctx tv v of
-             Left failure -> putStrLn (showError failure file) >> exitFailure
-             Right vexp -> pure vexp
-    putStr $ "OK.\n"
-    putStrLn $ "\t+FINAL: " <> show vexp
-    return (CtxDef name tv v ctx)
+  ctx <- foldM' ctx decls $ \ctx (name, exp) -> do
+        putStrLn $ "***" <> name <> ": " <> show exp <> "***"
+        putStrLn $ "\t+elaborating..."
+        (te, exp') <- case synth ctx exp of
+               Left failure -> putStrLn (showError failure file) >> exitFailure
+               Right (Eannotate te exp') -> pure (te, exp')
+               Right notEannotate -> do
+                   putStrLn $ "expected Eannotate from synth, " <>
+                       "found |" <> show notEannotate <> "|."
+                   exitFailure
+
+        putStrLn $ "\t+elaborated: " <> show (Eannotate te exp')
+        putStr $ "\t+Evaluating type..."
+        tv <- case val (ctxEnv ctx) te of
+                Left failure -> putStrLn "***ERR***" >> putStrLn (showError failure file) >> exitFailure
+                Right tv -> pure tv
+        -- putStrLn $ "\t+type-v: " <> show tv
+        putStr $ "OK. "
+        putStr $ "Evaluating value..."
+        v <- case val (ctxEnv ctx) exp' of
+                 Left failure -> putStrLn (showError failure file) >> exitFailure
+                 Right v -> pure v
+        putStr $ "OK."
+        putStr $ " Reading back..."
+        vexp <- case  readbackVal ctx tv v of
+                 Left failure -> putStrLn (showError failure file) >> exitFailure
+                 Right vexp -> pure vexp
+        putStr $ "OK.\n"
+        putStrLn $ "\t+FINAL: " <> show vexp
+        return (CtxDef name tv v ctx)
   return ()
 
 main :: IO ()
@@ -390,6 +405,7 @@ data Val =
     ATOM |
     QUOTE Exp | -- I really don't know what symbol? is
     UNIV |
+    IND_TY InductiveDef |
     NEU TYPE Neutral -- NEU type neutral data
     deriving(Show)
 
@@ -426,12 +442,17 @@ data Neutral =
   | Nindabsurd Neutral TY_VAL -- target motive
   deriving(Show)
 
-data Ctx = CtxEmpty | CtxDef Name TYPE Val Ctx | CtxBind Name TYPE Ctx
+data Ctx = CtxEmpty
+  | CtxDef Name TYPE Val Ctx
+  | CtxBind Name TYPE Ctx
+  | CtxInductiveDef InductiveDef Ctx
+
 
 instance Show Ctx where
     show (CtxEmpty) = "[]"
     show (CtxDef n t v ctx') = show n <> show ":" <> show t <> "=" <> show v <> "; " <> show ctx'
     show (CtxBind n t ctx') = show n <> show ":" <> show t <> "; " <> show ctx'
+    show (CtxInductiveDef def ctx') = show def <> "; " <> show ctx'
 
 ctxLookupTYPE :: Ctx -> Name -> Maybe Val
 ctxLookupTYPE (CtxEmpty) _ = Nothing
@@ -439,15 +460,18 @@ ctxLookupTYPE (CtxDef n t _ ctx') name =
     if n == name then Just t else ctxLookupTYPE ctx' name
 ctxLookupTYPE (CtxBind n t ctx') name =
     if n == name then Just t else ctxLookupTYPE ctx' name
+ctxLookupTYPE (CtxInductiveDef def ctx') name =
+    if name == inductiveDefName def then Just (IND_TY def) else ctxLookupTYPE ctx' name
 
 type Environment = [(Name, Val)]
 ctxEnv :: Ctx -> Environment
 ctxEnv CtxEmpty = []
 ctxEnv (CtxDef n t v ctx') = (n,v):ctxEnv ctx'
 ctxEnv (CtxBind n t ctx') = (n, NEU t (Nvar n)):ctxEnv ctx'
+ctxEnv (CtxInductiveDef ind ctx') = ctxEnv ctx'
 
 ctxExtend :: Ctx -> Name -> TYPE -> Ctx
-ctxExtend ctx name ty = CtxBind name ty  ctx
+ctxExtend ctx name ty = CtxBind name ty ctx
 
 -- 7.3.1
 -- | evaluate closure, instantiating bound variable with v
@@ -1008,6 +1032,9 @@ instance Show Loc where
 errAtLoc :: Loc -> String  -> Error
 errAtLoc l err = Error (Span l l) err
 
+errAtSpan :: Span -> String  -> Error
+errAtSpan s err = Error s err
+
 data Span = Span { spanl :: Loc, spanr :: Loc } deriving(Eq)
 
 instance Show Span where
@@ -1023,7 +1050,7 @@ data AST =
     Tuple {
       astspan :: Span,
       tupledelimiter :: Delimiter,
-      tupleget :: [AST]
+      unTuple :: [AST]
     } |
     Atom {
       astspan :: Span,
@@ -1045,7 +1072,7 @@ astPretty (Atom _ l) = l
 astPretty (Tuple _ delim ls) =
   delimOpen delim ++ L.intercalate " " (map astPretty ls) ++ delimClose delim
 
-astSpan :: AST-> Span
+astSpan :: AST -> Span
 astSpan (Tuple span _ _) = span
 astSpan (Atom span _) = span
 
@@ -1143,15 +1170,17 @@ parse s =
   in doparse (tokenize locBegin s) (Tuple spanBegin Flower []) []
 
 
-astDrop :: Int -> AST -> Either Error [AST]
+astDrop :: Int -> AST -> Either Error AST
 astDrop len (Atom span _) =
- Left $ Error span "expected to tuple, found atom"
-astDrop len (Tuple span _ xs) =
-  if length xs < len
-  then Left $ Error span $
-    "expected tuple with at least " ++ show len ++ "elements. " ++
-     "Found tuple of smaller length: "  ++ show (length xs)
-  else return (drop len xs)
+ Left $ errAtSpan span $ "expected to tuple, found atom"
+astDrop len (Tuple span delim xs) =
+  return $ Tuple (Span locLeft locRight) delim (drop len xs)
+  where
+   xs' = drop len xs
+   locRight = spanr span
+   locLeft = case xs' of
+              [] -> locRight
+              (x : _) -> spanl $ astSpan x
 
 at :: Int -> AST -> Either Error AST
 at ix (Atom span _) =
@@ -1250,11 +1279,11 @@ aststr s (Atom span x) =
         "expected string |" ++ s ++ "|. found |" ++ x ++ "|"
 
 -- | create a list of tuple values
-tuplefor :: (AST -> Either Error a) -> AST -> Either Error [a]
-tuplefor f (Atom span _) =
+tupleFoldMap :: Monoid a => (AST -> Either Error a) -> AST -> Either Error a
+tupleFoldMap f (Atom span _) =
   Left $ Error span $
     "expected tuple, found atom."
-tuplefor f (Tuple span _ xs) = M.forM xs f
+tupleFoldMap f (Tuple span _ xs) = mconcat <$> traverse f xs
 
 atomOneOf :: [String] -> AST -> Either Error String
 atomOneOf _ (Tuple span _ xs) =

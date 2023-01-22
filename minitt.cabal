@@ -34,3 +34,8 @@ executable stlc
     build-depends:    base, lsp, text
     -- hs-source-dirs:   .
     default-language: Haskell2010
+
+executable 13-inductive
+    main-is: 13-inductive.hs
+    build-depends:    base
+    default-language: Haskell2010
