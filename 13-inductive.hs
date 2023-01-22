@@ -7,8 +7,9 @@ import System.Environment
 import System.Exit
 import Debug.Trace
 import Data.List
-import AST
 import Data.Either
+import qualified Control.Monad as M
+import qualified Data.List as L
 import Control.Monad(foldM, forM)
 
 
@@ -18,8 +19,8 @@ import Control.Monad(foldM, forM)
 -- 7. Dependently typed lang
 -- http://davidchristiansen.dk/tutorials/nbe/
 
-instance MonadFail (Either String) where
-    fail = Left
+instance MonadFail (Either Error) where
+    fail s = Left (Error dummySpan s)
 
 type Name = String
 
@@ -292,7 +293,7 @@ elaborateExp tuple = do
       args <- astDrop 4 tuple
       args <- forM args elaborateExp -- elaborate the arguments
       return $ Eelim name val motive args
-    _ -> Left $ "unknown special form |" ++ head ++
+    _ -> Left $ Error (astSpan tuple) $ "unknown special form |" ++ head ++
                   "| in " ++ "|" ++ astPretty tuple ++ "|"
 
 
@@ -318,14 +319,14 @@ main = do
   putStrLn $ "file contents:"
   putStrLn $ file
   putStrLn $ "parsing..."
-  ast <- case AST.parse file of
-           Left failure -> putStrLn failure >> exitFailure
+  ast <- case parse file of
+           Left failure -> putStrLn (showError failure file) >> exitFailure
            Right success -> pure success
   putStrLn $ astPretty ast
 
   putStrLn $ "convering to intermediate repr..."
   decls <- case tuplefor elaborate ast of
-            Left failure -> putStrLn failure >> exitFailure
+            Left failure -> putStrLn (showError failure file) >> exitFailure
             Right d -> pure d
 
   putStrLn $ "type checking and evaluating..."
@@ -333,7 +334,7 @@ main = do
     putStrLn $ "***" <> name <> ": " <> show exp <> "***"
     putStrLn $ "\t+elaborating..."
     (te, exp') <- case synth ctx exp of
-            Left failure -> putStrLn failure >> exitFailure
+            Left failure -> putStrLn (showError failure file) >> exitFailure
             Right (Eannotate te exp') -> pure (te, exp')
             Right notEannotate -> do
                 putStrLn $ "expected Eannotate from synth, " <>
@@ -342,18 +343,18 @@ main = do
     putStrLn $ "\t+elaborated: " <> show (Eannotate te exp')
     putStr $ "\t+Evaluating type..."
     tv <- case val (ctxEnv ctx) te of
-            Left failure -> putStrLn "***ERR***" >> putStrLn failure >> exitFailure
+            Left failure -> putStrLn "***ERR***" >> putStrLn (showError failure file) >> exitFailure
             Right tv -> pure tv
     -- putStrLn $ "\t+type-v: " <> show tv
     putStr $ "OK. "
     putStr $ "Evaluating value..."
     v <- case val (ctxEnv ctx) exp' of
-             Left failure -> putStrLn failure >> exitFailure
+             Left failure -> putStrLn (showError failure file) >> exitFailure
              Right v -> pure v
     putStr $ "OK."
     putStr $ " Reading back..."
     vexp <- case  readbackVal ctx tv v of
-             Left failure -> putStrLn failure >> exitFailure
+             Left failure -> putStrLn (showError failure file) >> exitFailure
              Right vexp -> pure vexp
     putStr $ "OK.\n"
     putStrLn $ "\t+FINAL: " <> show vexp
@@ -393,7 +394,7 @@ type TYPE = Val
 -- | the embedding is shallow because it's used by shallow people in a hurry
 -- who don't want to deal with binders!
 data Closure =
-    ClosureShallow Name (Val -> Either String Val) |
+    ClosureShallow Name (Val -> Either Error Val) |
     ClosureDeep [(Name, Val)] Name Exp
 
 -- for a closure (ρ, \x. e) return x
@@ -446,12 +447,12 @@ ctxExtend ctx name ty = CtxBind name ty  ctx
 
 -- 7.3.1
 -- | evaluate closure, instantiating bound variable with v
-valOfClosure :: Closure -> Val -> Either String Val
+valOfClosure :: Closure -> Val -> Either Error Val
 valOfClosure (ClosureShallow x f) v = f v
 valOfClosure (ClosureDeep env x body) v = val ((x,v):env) body
 
 
-val :: Environment -> Exp -> Either String Val
+val :: Environment -> Exp -> Either Error Val
 val env (Eannotate t e) = val env e
 val env (Euniv) = return $ UNIV
 val env (Epi x etdom etcodom) = do
@@ -507,37 +508,37 @@ val env (Equote e) = return $ QUOTE e
 val env (Eident n) =
   case lookup n env of
     Just v -> Right v
-    Nothing -> Left $ "unknown variable |" <> n <> "|"
+    Nothing -> Left $ Error dummySpan $ "unknown variable |" <> n <> "|"
 val env (Eap f x) = do
     vf <- val env f
     vx <- val env x
     doAp vf vx
--- val env e = Left $ "unknown expression for val: |" <> show e <> "|"
+-- val env e = Left $ Error dummySpan $ "unknown expression for val: |" <> show e <> "|"
 
-doAp :: Val -> Val -> Either String Val
+doAp :: Val -> Val -> Either Error Val
 doAp (LAM c) arg = valOfClosure c arg
 -- | why is PI a NEU? Is it because it can only occur as a TYPE of something?
 doAp (NEU (PI ti toclosure) piInhabitantv) arg = do
   to <- valOfClosure toclosure arg
   return $ NEU to (Nap piInhabitantv (TY_VAL ti arg))
 doAp v arg =
-    Left $ "ERR: illegal application of |" <> show v <> "|" <>
+    Left $ Error dummySpan $ "ERR: illegal application of |" <> show v <> "|" <>
             " to |" <> show arg <> "|."
 
 
-doCar:: Val -> Either String Val
+doCar:: Val -> Either Error Val
 doCar (PAIR a d) = return a
 doCar (NEU (SIGMA ta _) v) =
     return $ NEU ta (Ncar v)
 
-doCdr :: Val -> Either String Val
+doCdr :: Val -> Either Error Val
 doCdr v = error "unimplemented"
 
 -- | Because every absurd is neutral (why?)
 -- (is it because it has no constructors?)
 -- | is ABSURD a type of a value?
 -- | TODO: I don't understand the below declaration.
-doIndAbsurd :: Val -> Val -> Either String Val
+doIndAbsurd :: Val -> Val -> Either Error Val
 doIndAbsurd (NEU (ABSURD) ne) motive =
   return $ NEU motive (Nindabsurd ne (TY_VAL UNIV motive))
 
@@ -545,7 +546,7 @@ doIndAbsurd (NEU (ABSURD) ne) motive =
 doReplace :: Val -- target
           -> Val -- motive
           -> Val -- base
-          -> Either String Val
+          -> Either Error Val
 doReplace (SAME) motive base = return base
 doReplace (NEU (EQ tA from to) neutvtarget) motive base = do
     tto <- doAp motive to
@@ -567,7 +568,7 @@ indNatStepTYPE motive =
              return $ PI lhs rhs
 
 
-doIndNat :: Val -> Val -> Val -> Val -> Either String Val
+doIndNat :: Val -> Val -> Val -> Val -> Either Error Val
 -- doIndNat target motive base step =
 doIndNat ZERO motive base step = return $ base
 doIndNat (ADD1 n) motive base step = do
@@ -600,7 +601,7 @@ ctxNames (CtxDef n t v ctx')  = n:ctxNames ctx'
 ctxFresh :: Ctx -> Name -> Name
 ctxFresh ctx name = fresh (ctxNames ctx) name
 
-readbackVal :: Ctx -> TYPE -> Val -> Either String Exp
+readbackVal :: Ctx -> TYPE -> Val -> Either Error Exp
 
 -- | NAT
 readbackVal ctx NAT ZERO = return E0
@@ -662,12 +663,12 @@ readbackVal ctx t1 (NEU t2 ne) = readbackNeutral ctx ne
 -- How to exhibit inconsistence given Univ: Univ?
 readbackVal ctx UNIV UNIV = return $ Euniv
 readbackVal ctx t v =
-    Left $ "unknown readback |" <> show v <>  " :: " <> show t <> "|"
+    Left $ Error dummySpan $ "unknown readback |" <> show v <>  " :: " <> show t <> "|"
 
 -- | Read back a neutral expression as syntax.
 -- | users are:
 --     readbackVal Absurd
-readbackNeutral :: Ctx -> Neutral -> Either String Exp
+readbackNeutral :: Ctx -> Neutral -> Either Error Exp
 readbackNeutral ctx (Nvar x) = return $ Eident x
 readbackNeutral ctx (Nap nf (TY_VAL nxty nx)) = do
   ef <- readbackNeutral ctx nf
@@ -706,7 +707,7 @@ readbackNeutral ctx (Nindabsurd target
 
 -- | having NBE is vital during type checking, since we want to
 -- normalize type-level terms to type check!
-nbe :: Ctx -> TYPE -> Exp -> Either String Exp
+nbe :: Ctx -> TYPE -> Exp -> Either Error Exp
 nbe ctx t e = do
     v <- val (ctxEnv ctx) e
     readbackVal ctx t v
@@ -724,7 +725,7 @@ nbe ctx t e = do
 -- that Exp will be Eannotate. We can't return a tuple (TYPE, Exp)
 -- since check will call synth and synth will call check compositionally to
 -- build new annotated ASTs.
-synth :: Ctx -> Exp -> Either String Exp
+synth :: Ctx -> Exp -> Either Error Exp
 -- recall that TYPE = Val
 synth ctx (Eannotate ty e) = do
     ty' <- check ctx ty UNIV -- check that ty has type universe (is at the right level)
@@ -760,7 +761,7 @@ synth ctx (Ecar p) = do
           return (Eannotate le (Ecar pelab))
       nonSigma -> do
         ptyve <- readbackVal ctx UNIV nonSigma
-        Left $ "expected Ecar to be given value of Σ type." <>
+        Left $ Error dummySpan $ "expected Ecar to be given value of Σ type." <>
                 "Value |" <> show pelab <> "| " <>
                         "has non-Σ type |" <> show ptyve <> "|"
 
@@ -776,7 +777,7 @@ synth ctx (Ecdr p) = do
           return (Eannotate rte (Ecar pelab))
       nonSigma -> do
         ptyve <- readbackVal ctx UNIV nonSigma
-        Left $ "expected Ecar to be given value of Σ type." <>
+        Left $ Error dummySpan $ "expected Ecar to be given value of Σ type." <>
                 "Value |" <> show pelab <> "| " <>
                         "has non-Σ type |" <> show ptyve <> "|"
 
@@ -816,7 +817,7 @@ synth ctx (Ereplace etarget emotive ebase) = do
     etargetoutv <- val (ctxEnv ctx) etargetout
     (x, from, to) <- case etargetoutv of
         EQ x from to -> return (x, from, to)
-        _ -> Left $ "expected (replace  to destructure an EQ value; " <>
+        _ -> Left $ Error dummySpan $ "expected (replace  to destructure an EQ value; " <>
                   "Found | " <> show etarget <> "|"
     -- motive :: X -> UNIV
     motiveout <- check ctx emotive
@@ -860,7 +861,7 @@ synth ctx (Eap ef ex) = do
     ftv <- val (ctxEnv ctx) ft
     (tin, toutclosure) <- case ftv of
         PI tin tout -> return (tin, tout)
-        notPi -> Left $ "expected function type to be PI type at" <>
+        notPi -> Left $ Error dummySpan $ "expected function type to be PI type at" <>
                   "|" <> show fe <> "|, found type" <>
                   "|" <> show notPi <> "|"
     xout <- check ctx ex tin
@@ -873,19 +874,19 @@ synth ctx (Eident name) =
       Just t -> do
           te <- readbackVal ctx UNIV t
           return $ Eannotate te (Eident name)
-      Nothing -> Left $ "unknown variable |" <> name <> "|"
+      Nothing -> Left $ Error dummySpan $ "unknown variable |" <> name <> "|"
 
 synth ctx e =
-    Left $ "cannot synthesize a type for expression |" <> show e <> "|"
+    Left $ Error dummySpan $  "cannot synthesize a type for expression |" <> show e <> "|"
 
 
 -- | check pattern matches on the value
 -- cons is checked because it is an introduction rule.
-check :: Ctx -> Exp -> TYPE -> Either String Exp
+check :: Ctx -> Exp -> TYPE -> Either Error Exp
 check ctx  (Econs ea ed) t = do
     (ta, tdclosure) <- case t of
       SIGMA ta tdclosure -> return (ta, tdclosure)
-      notSigma -> Left $ "expected cons to have Σ type. " <>
+      notSigma -> Left $ Error dummySpan $ "expected cons to have Σ type. " <>
                    "Found |" <> show (Econs ea ed) <> "|" <>
                    "to have type |" <> show notSigma <> "|"
     aout <- check ctx ea ta
@@ -895,13 +896,13 @@ check ctx  (Econs ea ed) t = do
 check ctx E0 t =
     case t of
      NAT -> return E0
-     notNat -> Left $ "expected zero to have type nat. " <>
+     notNat -> Left $ Error dummySpan $ "expected zero to have type nat. " <>
                       "Found |" <> show notNat <> "|"
 check ctx (Eadd1 en) t = do
     en' <- check ctx en NAT
     case t of
      NAT -> return (Eadd1 en')
-     notNat -> Left $ "expected zero to have type nat. " <>
+     notNat -> Left $ Error dummySpan $ "expected zero to have type nat. " <>
                       "Found |" <> show notNat <> "|"
 
 -- | same is constructor of EQ
@@ -913,33 +914,33 @@ check ctx Esame t = do
    (EQ t vfrom vto) -> do
       convert ctx t vfrom vto -- check that vfrom = vto
       return Esame
-   noteq -> Left $ "exected same to have type eq." <>
+   noteq -> Left $ Error dummySpan $ "exected same to have type eq." <>
                     "found |" <> show noteq <> "|"
 
-check ctx Esole t = 
+check ctx Esole t =
   case t of
     TRIVIAL -> return Esole
-    notTrivial -> 
-      Left $ "expected sole to have type trivial, but found type " <>
+    notTrivial ->
+      Left $ Error dummySpan $ "expected sole to have type trivial, but found type " <>
              "|" <> show notTrivial <> "|"
 
-check ctx (Elam x body) t = 
+check ctx (Elam x body) t =
   case t of
     PI ta tbclosure -> do
         let vx = NEU ta (Nvar x)
         tb <- valOfClosure tbclosure vx
         outbody <- check (ctxExtend ctx x ta) body tb
         return $ (Elam x outbody)
-    notPi -> 
-      Left $ "expected lambda to have type PI, but found type " <>
+    notPi ->
+      Left $ Error dummySpan $ "expected lambda to have type PI, but found type " <>
              "|" <> show notPi <> "|"
 
 -- quote constructs atom
-check ctx (Equote x) t = 
+check ctx (Equote x) t =
   case t of
     ATOM -> return $ (Equote x)
-    notAtom -> 
-      Left $ "expected quote to have type Atom, but found type " <>
+    notAtom ->
+      Left $ Error dummySpan $ "expected quote to have type Atom, but found type " <>
              "|" <> show notAtom <> "|"
 
 
@@ -951,19 +952,328 @@ check ctx e texpectedv = do
     case convert ctx UNIV tev texpectedv of
       Right () -> pure ()
       Left err -> do
-        Left $ "check |" <> show  eout <> "| : " <>
+        Left $ Error (errSpan err) $ "check |" <> show  eout <> "| : " <>
                 "|" <> show tev <> "|" <> " =? " <>
                 "|" <> show texpectedv  <> " [expected]|" <>
-                " failed: " <> err
+                " failed: " <> errString err
     return $ eout
 
 -- convert t v1 v2 = ...
-convert :: Ctx -> Val -> Val -> Val -> Either String ()
+convert :: Ctx -> Val -> Val -> Val -> Either Error ()
 convert ctx t v1 v2 = do
     e1 <- readbackVal ctx t v1
     e2 <- readbackVal ctx t v2
     case alphaEquiv e1 e2 of
       True -> return ()
-      False -> Left $ "expected α equivalence between " <>
+      False -> Left $ Error dummySpan $ "expected α equivalence between " <>
                       "|" <> show e1 <> "| and " <>
                       "|" <> show e2 <> "|."
+-- === AST ===
+-- === AST ===
+-- === AST ===
+
+data Error = Error {
+  errSpan :: Span
+  , errString :: String
+}
+
+dummyLoc :: Loc
+dummyLoc = Loc 0 1 0
+
+dummySpan :: Span
+dummySpan = Span dummyLoc dummyLoc
+
+
+showLoc :: Loc -> String
+showLoc (Loc ix line col) = show line <> ":" <> show col
+
+showSpan :: Span -> String
+showSpan (Span l r) = showLoc l <> "-" <> showLoc r
+
+showError :: Error -> String -> String
+showError (Error span str) file =
+  showSpan span <> "\n" <> show str
+
+
+data Loc =
+  Loc { locix :: Int, locline :: Int, loccol :: Int } deriving(Eq)
+
+instance Show Loc where
+  show (Loc ix line col) = "Loc(" ++ show line ++ ":" ++ show col ++ " " ++ show ix ++ ")"
+
+errAtLoc :: Loc -> String  -> Error
+errAtLoc l err = Error (Span l l) err
+
+data Span = Span { spanl :: Loc, spanr :: Loc } deriving(Eq)
+
+instance Show Span where
+  show (Span l r) = "Span(" ++ show l ++ " " ++ show r ++ ")"
+
+
+data Delimiter = Round | Square | Flower deriving(Eq, Show)
+
+data Token = Open Span Delimiter | Close Span Delimiter | Str Span String deriving(Show)
+
+-- The Char of a tuple carries what the open bracket looks like.
+data AST =
+    Tuple {
+      astspan :: Span,
+      tupledelimiter :: Delimiter,
+      tupleget :: [AST]
+    } |
+    Atom {
+      astspan :: Span,
+      atomget :: String
+    } deriving (Show)
+
+delimOpen :: Delimiter -> String
+delimOpen Round = "("
+delimOpen Square = "["
+delimOpen Flower = "{"
+
+delimClose Round = ")"
+delimClose Square = "]"
+delimClose Flower = "}"
+
+
+astPretty :: AST -> String
+astPretty (Atom _ l) = l
+astPretty (Tuple _ delim ls) =
+  delimOpen delim ++ L.intercalate " " (map astPretty ls) ++ delimClose delim
+
+astSpan :: AST-> Span
+astSpan (Tuple span _ _) = span
+astSpan (Atom span _) = span
+
+spanExtend :: Span -> Span -> Span
+spanExtend (Span l r) (Span l' r') = Span l r'
+
+
+locNextCol :: Loc -> Loc
+locNextCol (Loc ix line col) = Loc (ix+1) line (col+1)
+
+locNextCols :: Int -> Loc -> Loc
+locNextCols n (Loc ix line col) = Loc (ix+n) line (col+n)
+
+locNextLine :: Loc -> Loc
+locNextLine (Loc ix line col) = Loc (ix+1) (line+1) 1
+
+isSigil :: Char -> Bool
+isSigil '(' = True
+isSigil ')' = True
+isSigil '[' = True
+isSigil ']' = True
+isSigil '{' = True
+isSigil '}' = True
+isSigil ' ' = True
+isSigil '\n' = True
+isSigil '\t' = True
+isSigil _ = False
+
+tokenize :: Loc -> String -> [Token]
+tokenize l [] = []
+tokenize l ('\n':cs) = tokenize (locNextLine l) cs
+tokenize l ('\t':cs) = tokenize (locNextCol l) cs
+tokenize l (' ':cs) = tokenize (locNextCol l) cs
+
+tokenize l ('(':cs) =
+    let l' =  locNextCol l; span = Span l l'
+    in (Open span Round):tokenize l' cs
+tokenize l (')':cs) =
+    let l' = locNextCol l; span = Span l l'
+    in (Close span Round):tokenize l' cs
+
+tokenize l ('[':cs) =
+    let l' =  locNextCol l; span = Span l l'
+    in (Open span Square):tokenize l' cs
+tokenize l (']':cs) =
+    let l' = locNextCol l; span = Span l l'
+    in (Close span Square):tokenize l' cs
+
+tokenize l ('{':cs) =
+    let l' =  locNextCol l; span = Span l l'
+    in (Open span Flower):tokenize l' cs
+tokenize l ('}':cs) =
+    let l' = locNextCol l; span = Span l l'
+    in (Close span Flower):tokenize l' cs
+
+
+tokenize l cs =
+    let (lex, cs') = L.span (not . isSigil) cs
+        l' = locNextCols (length lex) l
+        span = Span l l'
+    in (Str span lex):tokenize l' cs'
+
+tupleAppend :: AST -> AST -> AST
+tupleAppend (Atom _ _) s = error $ "cannot push into atom"
+tupleAppend (Tuple span delim ss) s = Tuple (spanExtend span (astSpan s)) delim (ss ++ [s])
+
+-- | invariant: stack, top only contain `Tuple`s.
+doparse :: [Token] -- ^ stream of tokens
+  -> AST -- ^ currently building AST
+  ->  [AST] -- ^ stack of AST
+  -> Either Error AST  -- final AST
+doparse [] cur [] = Right cur
+doparse [] cur (top:stack') =
+  Left $ Error (astSpan top) "unclosed open bracket."
+doparse ((Open span delim):ts) cur stack =
+  doparse ts (Tuple span delim [])  (cur:stack) -- open new tuple
+doparse ((Close span delim):ts) cur stack =
+  if tupledelimiter cur == delim -- we close the current thing correctly
+  then case stack of  -- pop stack, and append cur into top, make top cur
+            (top:stack') -> doparse ts (tupleAppend top cur) stack'
+            [] -> Left $ Error span "too many close parens."
+  else Left $ Error (astSpan cur) $ "mismatched bracket (open) " ++
+              "'" ++ (delimOpen (tupledelimiter cur)) ++ "'" ++
+              "; " ++ "mismatched bracket (close) " ++
+              "'" ++ (delimClose delim) ++ "'"
+
+doparse ((Str span str):ts) cur stack =
+  doparse ts (tupleAppend cur (Atom span str)) stack -- append into tuple
+
+-- | parse a string
+parse :: String -> Either Error AST
+parse s =
+  let locBegin = Loc 0 1 1
+      spanBegin = Span locBegin locBegin
+  in doparse (tokenize locBegin s) (Tuple spanBegin Flower []) []
+
+
+astDrop :: Int -> AST -> Either Error [AST]
+astDrop len (Atom span _) =
+ Left $ Error span "expected to tuple, found atom"
+astDrop len (Tuple span _ xs) =
+  if length xs < len
+  then Left $ Error span $
+    "expected tuple with at least " ++ show len ++ "elements. " ++
+     "Found tuple of smaller length: "  ++ show (length xs)
+  else return (drop len xs)
+
+at :: Int -> AST -> Either Error AST
+at ix (Atom span _) =
+ Left $ Error span $
+   "expected tuple index " ++ show ix ++
+   ". Found atom. "
+at ix (Tuple span _ xs) =
+  if length xs < ix
+  then Left $ Error span $
+    "expected tuple index " ++ show ix ++
+    ". Found tuple of smaller length: "  ++ show (length xs)
+  else return (xs !! ix)
+
+atom :: AST -> Either Error String
+atom t@(Tuple span _ xs) =
+  Left $ Error span $
+    "expected atom, found tuple.\n" ++ astPretty t
+atom (Atom span a) = return a
+
+tuple :: Int -> AST -> Either Error [AST]
+tuple n (Atom span atom) =
+  Left $ Error span $ "expected tuple of length " ++ show n ++
+         ". found atom " ++ show atom
+tuple n ast@(Tuple span _ xs) =
+ if length xs /= n
+ then Left $ Error span $
+    "expected tuple of length " ++ show n ++
+    ". found tuple of length " ++ show (length xs)  ++
+    " |" ++ astPretty ast ++ "|."
+ else Right xs
+
+tuple4 :: AST -> Either Error (AST, AST, AST, AST)
+tuple4 ast = do
+    xs <- tuple 4 ast
+    return (xs !! 0, xs !! 1, xs !! 2, xs !! 3)
+
+-- | functional version of tuple 2
+tuple2f :: (AST -> Either Error a0)
+    -> (AST -> Either Error a1)
+    -> AST -> Either Error (a0, a1)
+tuple2f f0 f1 ast = do
+    xs <- tuple 2 ast
+    a0 <- f0 (xs !! 0)
+    a1 <- f1 (xs !! 1)
+    return (a0, a1)
+
+-- | functional version of tuple 3
+tuple3f :: (AST -> Either Error a0)
+    -> (AST -> Either Error a1)
+    -> (AST -> Either Error a2)
+    -> AST -> Either Error (a0, a1, a2)
+tuple3f f0 f1 f2 ast = do
+    xs <- tuple 3 ast
+    a0 <- f0 (xs !! 0)
+    a1 <- f1 (xs !! 1)
+    a2 <- f2 (xs !! 2)
+    return (a0, a1, a2)
+
+-- | functional version of tuple 4
+tuple4f :: (AST -> Either Error a0)
+    -> (AST -> Either Error a1)
+    -> (AST -> Either Error a2)
+    -> (AST -> Either Error a3)
+    -> AST -> Either Error (a0, a1, a2, a3)
+tuple4f f0 f1 f2 f3 ast = do
+    xs <- tuple 4 ast
+    a0 <- f0 (xs !! 0)
+    a1 <- f1 (xs !! 1)
+    a2 <- f2 (xs !! 2)
+    a3 <- f3 (xs !! 3)
+    return (a0, a1, a2, a3)
+
+tuple5f :: (AST -> Either Error a0)
+    -> (AST -> Either Error a1)
+    -> (AST -> Either Error a2)
+    -> (AST -> Either Error a3)
+    -> (AST -> Either Error a4)
+    -> AST -> Either Error (a0, a1, a2, a3, a4)
+tuple5f f0 f1 f2 f3 f4 ast = do
+    xs <- tuple 5 ast
+    a0 <- f0 (xs !! 0)
+    a1 <- f1 (xs !! 1)
+    a2 <- f2 (xs !! 2)
+    a3 <- f3 (xs !! 3)
+    a4 <- f4 (xs !! 4)
+    return (a0, a1, a2, a3, a4)
+
+astignore :: AST -> Either Error ()
+astignore _ = return ()
+
+aststr :: String -> AST -> Either Error ()
+aststr s (Atom span x) =
+    case s == x of
+      True -> return ()
+      False -> Left $ Error span $
+        "expected string |" ++ s ++ "|. found |" ++ x ++ "|"
+
+-- | create a list of tuple values
+tuplefor :: (AST -> Either Error a) -> AST -> Either Error [a]
+tuplefor f (Atom span _) =
+  Left $ Error span $
+    "expected tuple, found atom."
+tuplefor f (Tuple span _ xs) = M.forM xs f
+
+atomOneOf :: [String] -> AST -> Either Error String
+atomOneOf _ (Tuple span _ xs) =
+  Left $ Error span $
+    "expected atom, found tuple."
+atomOneOf expected (Atom span atom) =
+  case L.findIndex (== atom) expected of
+    Just _ -> return atom
+    Nothing -> Left $ Error span $
+                 "expected one of |" ++
+                 L.intercalate ", " expected ++
+                 "|. Found |" ++ show atom ++ "|"
+
+
+tuplehd:: (AST -> Either Error a) -> AST -> Either Error a
+tuplehd f atom@(Atom span _) =
+  Left $ Error span $ "expected tuple, found atom." ++
+            "|" ++ astPretty atom ++ "|"
+tuplehd f (Tuple span delim (x:xs)) = f x
+
+tupletail:: (AST -> Either Error a) -> AST -> Either Error [a]
+tupletail _ atom@(Atom span _) =
+  Left $ Error span $ "expected tuple, found atom." ++
+            "|" ++ astPretty atom ++ "|"
+tupletail f (Tuple span delim (x:xs)) = do
+  M.forM xs f
