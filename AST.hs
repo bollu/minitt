@@ -155,6 +155,16 @@ parse s =
 
 
 
+astDrop :: Int -> AST -> Either Error [AST]
+astDrop len (Atom span _) =
+ Left $ errAtSpan span $ "expected to tuple, found atom"
+astDrop len (Tuple span _ xs) =
+  if length xs < len
+  then Left $ errAtSpan span $
+    "expected tuple with at least " ++ show len ++ "elements. " ++
+     "Found tuple of smaller length: "  ++ show (length xs)
+  else return (drop len xs)
+
 at :: Int -> AST -> Either Error AST
 at ix (Atom span _) = 
  Left $ errAtSpan span $ 
