@@ -23,17 +23,17 @@ extra-source-files:
     CHANGELOG.md
     README.md
 
-executable stlc
-    main-is:          STLC.hs
-
-    -- Modules included in this executable, other than Main.
-    other-modules: AST
-
-    -- LANGUAGE extensions used by modules in this package.
-    -- other-extensions:
-    build-depends:    base, lsp, text
-    -- hs-source-dirs:   .
-    default-language: Haskell2010
+-- executable stlc
+--     main-is:          STLC.hs
+--
+--     -- Modules included in this executable, other than Main.
+--     other-modules: AST
+--
+--     -- LANGUAGE extensions used by modules in this package.
+--     -- other-extensions:
+--     build-depends:    base, lsp, text
+--     -- hs-source-dirs:   .
+--     default-language: Haskell2010
 
 executable 13-inductive
     main-is: 13-inductive.hs

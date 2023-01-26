@@ -13,6 +13,21 @@ import qualified Data.List as L
 import Control.Monad(foldM, forM)
 
 
+-- parsing s-expressions is more than just a stack!
+-- Man, I really wanna rewrite this in Lean.
+-- Key idea: the s-expression parser knows if it is fixed length or
+-- variable length. Fixed length parsers can be concatenated without
+-- introducing additional nesting. For example:
+-- [(k nat) (v bool)] can avoid the extra nesting with
+-- [k nat v bool] which looks "cleaner".
+-- Two parsers of nested depth can be made into a fixed depth
+-- by introducing a delimiter. this allows parsers like (name <arg>* : <index>*) without
+-- needing excessive nesting.
+-- Conjecture:
+-- ==========
+--   this should also allow for nice *incremental* parsing, and structural editing!
+-- Does Haskell have skia bindings? If not, is it easy to generate bindings?
+
 -- generating the correct motive for inductives.
 
 
@@ -97,23 +112,42 @@ type InductiveName = String
 type CtorName = String
 
 -- A sequence of binders
-type TelescopeExp = [(Name, Type)]
+type Telescope = [(Name, Type)]
 
 -- | Definition of an InductiveDef type.
 -- https://hal.inria.fr/hal-01094195/document
 data InductiveDef = InductiveDef {
   inductiveDefName :: InductiveName -- name of the inductive
-  , inductiveIndexes :: TelescopeExp -- types of indexes
+  , inductiveIndexTele :: Telescope -- types of indexes
   , inductiveCtors :: [InductiveCtor]
-} deriving(Eq, Show)
+} deriving(Eq)
+
+
+showTele :: Telescope -> String
+showTele [] = ""
+showTele xs = "(" <>  intercalate "  " (map showBinder xs) <> ")"
+  where
+    showBinder :: (Name, Type) -> String
+    showBinder (n, t) = show n <> " " <> show t
+
+instance Show InductiveDef where
+ show (InductiveDef name tele ctors) =
+   "(INDUCTIVE-DEF " <> name <> showTele tele <>
+       intercalate " " (map show ctors) <> ")"
 
 -- Constructor for inductive types
 data InductiveCtor = InductiveCtor {
   ctorParentName :: InductiveName -- name of the inductive type.
   , ctorName :: CtorName -- name of the constructor.
-  , ctorTelescope :: TelescopeExp -- telescope of arguments.
-  , ctorIndexes :: Exp -- indexes of the inductive type built by the constructor
-} deriving(Eq, Show)
+  , ctorArgTele :: Telescope -- telescope of arguments.
+  , ctorIndexTele :: [Exp] -- indexes of the inductive type built by the constructor
+} deriving(Eq)
+
+
+instance Show InductiveCtor where
+  show (InductiveCtor parent name args ixs) =
+    "(INDUCTIVE-CTOR " <> name <> showTele args <> "→" <>
+    parent <> showExps ixs <> ")"
 
 
 
@@ -142,11 +176,16 @@ data Exp =
   | Euniv -- U
   | Eident String -- x
   | Eannotate Exp Exp -- annotation: type exp
-  | Emk Name [Exp] -- call a constructor: (mk <name> <arg>*)
+  | Ector Name [Exp] -- call a constructor: (ctor <name> <arg>*)
   | Eind Name [Exp] -- inductive type: (ind <name> <index>*)
   | Eelim Name Exp Exp [Exp] -- eliminator: (elim <name> <val> <motive> <args>)
   deriving(Eq, Ord)
 type Type = Exp
+type Args = [Exp]
+
+showExps :: [Exp] -> String
+showExps [] = ""
+showExps xs = "(" <> intercalate " " (map show xs) <> ")"
 
 -- | Check if expression is a simple expression with no data,
 -- so like a keyword
@@ -246,6 +285,10 @@ instance Show Exp where
   show Euniv = "univ"
   show (Eident name) = name
   show (Eannotate t e) = "(∈ " <> show t <> " " <> show e <> ")"
+  show (Ector name args) = "(ctor " <> name <> showExps args <> ")"
+  show (Eind name ixs) = "(ind " <> name <> showExps ixs <> ")"
+  show (Eelim name val motive args) =
+   "(elim " <> name <> " " <> show val <> " " <> show motive <> showExps args <> ")"
   -- show (Erec t target base step) = "(rec " <> show target <> " " <> show base <> " " <> show step <> ")"
 type Choice = (String, Exp)
 
@@ -254,65 +297,110 @@ elaborateExp :: AST -> Either Error Exp
 elaborateExp (Atom span "0") = Right $ E0
 elaborateExp (Atom span "nat") = Right $ Enat
 elaborateExp (Atom span ident) = Right $ Eident ident
-elaborateExp tuple = do
-  head  <- tuplehd atom tuple
+elaborateExp e = do
+  head  <- tuplehd atom e
   case head of
     "λ" -> do
-      ((), x, body) <- tuple3f astignore atom elaborateExp tuple
+      ((), x, body) <- tuple3f astignore atom elaborateExp e
       return $ Elam x body
     "$" -> do
-      ((), f, x) <- tuple3f astignore elaborateExp elaborateExp tuple
+      ((), f, x) <- tuple3f astignore elaborateExp elaborateExp e
       return $ Eap f x
     "∈" -> do
-      ((), t, e) <- tuple3f astignore elaborateExp elaborateExp tuple
+      ((), t, e) <- tuple3f astignore elaborateExp elaborateExp e
       return $ Eannotate t e
     ":" -> do
-      ((), t, e) <- tuple3f astignore elaborateExp elaborateExp tuple
+      ((), t, e) <- tuple3f astignore elaborateExp elaborateExp e
       return $ Eannotate t e
     "+1" -> do
-      ((), e) <- tuple2f astignore elaborateExp tuple
+      ((), e) <- tuple2f astignore elaborateExp e
       return $ Eadd1 e
     "→" -> do
-      ((), ti, to) <- tuple3f astignore elaborateExp elaborateExp tuple
+      ((), ti, to) <- tuple3f astignore elaborateExp elaborateExp e
       return $ Epi "_" ti to
-    "ind-nat" -> do
-        ((), target, motive, base, step) <- tuple5f
-            astignore elaborateExp elaborateExp elaborateExp elaborateExp tuple
-        return $ Eindnat target motive base step
-    "ind" -> do
-      name <- atomget <$> at 1 tuple
-      args <- unTuple <$> astDrop 2 tuple
-      args <- forM args elaborateExp -- elaborate the arguments
-      return $ Eind name args
-    "mk" -> do
-      name <- atomget <$> at 1 tuple
-      args <- unTuple <$> astDrop 2 tuple
-      args <- forM args elaborateExp -- elaborate the arguments
-      return $ Emk name args
+    -- "ind-nat" -> do
+    --     ((), target, motive, base, step) <- tuple5f
+    --         astignore elaborateExp elaborateExp elaborateExp elaborateExp e
+    --     return $ Eindnat target motive base step
+    "ind" -> do -- (ind nat : [<indexes>])
+      name <- atomget <$> at 1 e
+      at 2 e >>= atomString ":"
+      indexes <- at 3 e >>= tupleFor elaborateExp
+      return $ Eind name indexes
+    "ctor" -> do -- (ctor name (<args>))
+      name <- at 1 e >>= atom
+      args <- at 2 e >>= tupleFor elaborateExp
+      return $ Ector name args
     "elim" -> do
-      name <- atomget <$> at 1 tuple
-      val <- at 2 tuple >>= elaborateExp
-      motive <- at 3 tuple >>= elaborateExp
-      args <- unTuple <$> astDrop 4 tuple
-      args <- forM args elaborateExp -- elaborate the arguments
+      name <- at 1 e >>= atom
+      val <- at 2 e >>= elaborateExp
+      motive <- at 3 e >>= elaborateExp
+      args <- at 4 e >>= tupleFor elaborateExp
       return $ Eelim name val motive args
-    _ -> Left $ Error (astSpan tuple) $ "unknown special form |" ++ head ++
-                  "| in " ++ "|" ++ astPretty tuple ++ "|"
+    _ -> Left $ Error (astSpan e) $ "unknown special form '" ++ head ++
+                  "' in " ++ "'" ++ astPretty e ++ "'"
 
 
+
+-- | elaborate a binder ('name' 'ty'). eg (x nat)
+elaborateBinder :: AST -> Either Error (Name, Exp)
+elaborateBinder ast = tuple2f atom elaborateExp ast
+
+-- | elaborate a sequence of binders. eg [(x nat) (y [ind vec x])]
+elaborateTelescope :: AST -> Either Error Telescope
+elaborateTelescope ast = tupleFor elaborateBinder ast
+
+
+-- | elaborate the constructor of an inductive
+--   (zero : [])
+--   (s [(x nat) (y nat)] : []))
+elaborateInductiveCtor :: String -> AST -> Either Error InductiveCtor
+elaborateInductiveCtor parentName ast = do
+  name <- at 0 ast >>= atom
+  args <- at 1 ast >>= elaborateTelescope
+  at 2 ast >>= atomString ":"
+  ixs <- at 3 ast >>= tupleFor elaborateExp
+  return $ InductiveCtor {
+    ctorParentName = parentName
+    , ctorName = name
+    , ctorArgTele = args
+    , ctorIndexTele = ixs
+  } where
+    notColon :: AST -> Bool
+    notColon ast =
+        case atom ast of
+          Left _ -> False
+          Right str -> str /= ":"
+
+
+
+{-
+(ind nat : []
+  (zero : [])
+  (s [(x nat) (y nat)] : []))
+We get the AST from nat...
+-}
 elaborateInductiveDef :: AST -> Either Error InductiveDef
-elaborateInductiveDef ast = Left $ Error dummySpan "elaborating inductive"
+elaborateInductiveDef ast = do
+  name <- at 1 ast >>= atom
+  at 2 ast >>= atomString ":"
+  indexes <- at 3 ast >>= elaborateTelescope
+  ctors <- at 4 ast >>= tupleFor (elaborateInductiveCtor name)
+  return $ InductiveDef {
+    inductiveDefName = name
+    , inductiveIndexTele = indexes
+    , inductiveCtors = ctors
+  }
 
 elaborateToplevel :: AST -> Either Error ([InductiveDef], [(Name, Exp)])
-elaborateToplevel tuple = do
-  head  <- tuplehd atom tuple
-  tail <- astDrop 1 tuple
+elaborateToplevel t = do
+  head  <- tuplehd atom t
   case head of
     "def" -> do
-      (name, exp) <- tuple2f atom elaborateExp tail
+      (_def, name, exp) <- tuple3f atom atom elaborateExp t
       return ([], [(name, exp)])
     "ind" -> do
-      ind <- elaborateInductiveDef tail
+      ind <- elaborateInductiveDef t
       return $ ([ind], [])
 
 foldM' :: (Monad m, Traversable t) =>
@@ -330,14 +418,14 @@ main_ path = do
            Right success -> pure success
   putStrLn $ astPretty ast
 
-  putStrLn $ "convering to intermediate repr..."
+  putStrLn $ "converting to intermediate repr..."
   (inductives, decls) <- case tupleFoldMap elaborateToplevel ast of
             Left failure -> putStrLn (showError failure file) >> exitFailure
             Right d -> pure d
 
   putStrLn $ "processing inductives..."
   ctx <- foldM' CtxEmpty inductives $ \ctx ind -> do
-           putStrLn $ "***" <> show ind 
+           putStrLn $ "***" <> show ind
            return (CtxInductiveDef ind ctx)
   putStrLn $ "type checking and evaluating..."
   ctx <- foldM' ctx decls $ \ctx (name, exp) -> do
@@ -1020,7 +1108,7 @@ showSpan (Span l r) = showLoc l <> "-" <> showLoc r
 
 showError :: Error -> String -> String
 showError (Error span str) file =
-  showSpan span <> "\n" <> show str
+  showSpan span <> "\n" <> str
 
 
 data Loc =
@@ -1170,18 +1258,6 @@ parse s =
   in doparse (tokenize locBegin s) (Tuple spanBegin Flower []) []
 
 
-astDrop :: Int -> AST -> Either Error AST
-astDrop len (Atom span _) =
- Left $ errAtSpan span $ "expected to tuple, found atom"
-astDrop len (Tuple span delim xs) =
-  return $ Tuple (Span locLeft locRight) delim (drop len xs)
-  where
-   xs' = drop len xs
-   locRight = spanr span
-   locLeft = case xs' of
-              [] -> locRight
-              (x : _) -> spanl $ astSpan x
-
 at :: Int -> AST -> Either Error AST
 at ix (Atom span _) =
  Left $ Error span $
@@ -1197,8 +1273,17 @@ at ix (Tuple span _ xs) =
 atom :: AST -> Either Error String
 atom t@(Tuple span _ xs) =
   Left $ Error span $
-    "expected atom, found tuple.\n" ++ astPretty t
+    "expected atom, found tuple '" <> astPretty t <> "'"
 atom (Atom span a) = return a
+
+atomString :: String -> AST -> Either Error ()
+atomString s t@(Tuple span _ xs) =
+  Left $ Error span $
+    "expected '" <> s <> "', found tuple '" <> astPretty t <> "'"
+atomString s (Atom span a) =
+  if s == a
+  then return ()
+  else Left $ Error span $ "expected atom '" <> s <> "', but found atom '" <> a <> "'"
 
 tuple :: Int -> AST -> Either Error [AST]
 tuple n (Atom span atom) =
@@ -1278,12 +1363,20 @@ aststr s (Atom span x) =
       False -> Left $ Error span $
         "expected string |" ++ s ++ "|. found |" ++ x ++ "|"
 
+tupleNull :: AST -> Either Error Bool
+tupleNull (Atom span atom) =
+  Left $ Error span $ "expected tuple, found atom '" <>  atom <> "'"
+tupleNull (Tuple span _ xs) = return (null xs)
+
 -- | create a list of tuple values
+tupleFor :: (AST -> Either Error a) -> AST -> Either Error [a]
+tupleFor f (Atom span atom) =
+  Left $ Error span $ "expected tuple, found atom '" <> atom <> "'"
+tupleFor f (Tuple span _ xs) = traverse f xs
+
+-- | fold monoidally and effectfully over AST values.
 tupleFoldMap :: Monoid a => (AST -> Either Error a) -> AST -> Either Error a
-tupleFoldMap f (Atom span _) =
-  Left $ Error span $
-    "expected tuple, found atom."
-tupleFoldMap f (Tuple span _ xs) = mconcat <$> traverse f xs
+tupleFoldMap f ast = mconcat <$> (tupleFor f ast)
 
 atomOneOf :: [String] -> AST -> Either Error String
 atomOneOf _ (Tuple span _ xs) =
@@ -1298,13 +1391,15 @@ atomOneOf expected (Atom span atom) =
                  "|. Found |" ++ show atom ++ "|"
 
 
-tuplehd:: (AST -> Either Error a) -> AST -> Either Error a
+tuplehd :: (AST -> Either Error a) -> AST -> Either Error a
 tuplehd f atom@(Atom span _) =
   Left $ Error span $ "expected tuple, found atom." ++
             "|" ++ astPretty atom ++ "|"
+tuplehd f t@(Tuple span delim []) =
+  Left $ Error span $ "expected tuple of length >=1, found: " <> astPretty t
 tuplehd f (Tuple span delim (x:xs)) = f x
 
-tupletail:: (AST -> Either Error a) -> AST -> Either Error [a]
+tupletail :: (AST -> Either Error a) -> AST -> Either Error [a]
 tupletail _ atom@(Atom span _) =
   Left $ Error span $ "expected tuple, found atom." ++
             "|" ++ astPretty atom ++ "|"
