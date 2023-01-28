@@ -140,8 +140,8 @@ instance Show InductiveDef where
 data InductiveCtor = InductiveCtor {
   ctorParentName :: InductiveName -- name of the inductive type.
   , ctorName :: CtorName -- name of the constructor.
-  , ctorArgTele :: Telescope -- telescope of arguments.
-  , ctorIndexTele :: [Exp] -- indexes of the inductive type built by the constructor
+  , ctorParamTele :: Telescope -- telescope of arguments.
+  , ctorIndexExps :: [Exp] -- indexes of the inductive type built by the constructor
 } deriving(Eq)
 
 
@@ -199,6 +199,11 @@ expIsKeyword Eabsurd = True
 expIsKeyword Eatom = True
 expIsKeyword Enat = True
 expIsKeyword _ = False
+
+-- capture avoiding substitution.
+-- e[x/newval]
+expSubst :: Exp -> String -> Exp -> Exp
+expSubst e name v = error "TODO: implement capture avoiding substitutoin" 
 
 -- This is kinda sus:
 -- -----------------
@@ -374,13 +379,13 @@ elaborateTelescope ast = tupleFor elaborateBinder ast
 elaborateInductiveCtor :: String -> AST -> Either Error InductiveCtor
 elaborateInductiveCtor parentName ast = do
   name <- at 0 ast >>= atom
-  args <- at 1 ast >>= elaborateTelescope
+  params <- at 1 ast >>= elaborateTelescope
   ixs <- at 2 ast >>= tupleFor elaborateExp
   return $ InductiveCtor {
     ctorParentName = parentName
     , ctorName = name
-    , ctorArgTele = args
-    , ctorIndexTele = ixs
+    , ctorParamTele = params
+    , ctorIndexExps = ixs
   } 
 
 {-
@@ -501,7 +506,10 @@ data Val =
     ATOM |
     QUOTE Exp | -- I really don't know what symbol? is
     UNIV |
-    IND_TY InductiveDef |
+    -- vv CTOR: types of the arguments, and their values. do I need a closure? (see SIGMA!)
+    -- vv types are necessary for reading back!
+    CTOR String [(Val, Val)] |  
+    IND_TY String [Val] | -- do I also need the indexes???
     NEU TYPE Neutral -- NEU type neutral data
     deriving(Show)
 
@@ -511,7 +519,7 @@ type TYPE = Val
 -- who don't want to deal with binders!
 data Closure =
     ClosureShallow Name (Val -> Either Error Val) |
-    ClosureDeep [(Name, Val)] Name Exp
+    ClosureDeep Environment Name Exp
 
 -- for a closure (ρ, \x. e) return x
 closureArgumentName  :: Closure -> Name
@@ -557,14 +565,59 @@ ctxLookupTYPE (CtxDef n t _ ctx') name =
 ctxLookupTYPE (CtxBind n t ctx') name =
     if n == name then Just t else ctxLookupTYPE ctx' name
 ctxLookupTYPE (CtxInductiveDef def ctx') name =
-    if name == inductiveDefName def then Just (IND_TY def) else ctxLookupTYPE ctx' name
+    -- TODO, FIXME: what do I do in this case?
+    -- if name == inductiveDefName def then 
+    -- Just (IND_TY def) else ctxLookupTYPE ctx' name
+    ctxLookupTYPE ctx' name
+-- ctxLookupInductiveDef :: Ctx -> String -> Maybe InductiveDef
+-- ctxLookupInductiveDef (CtxEmpty) _ = Nothing
+-- ctxLookupInductiveDef (CtxDef n t _ ctx') name =
+--     if n == name then Just t else ctxLookupInductiveDef ctx' name
+-- ctxLookupInductiveDef (CtxBind n t ctx') name =
+--     if n == name then Just t else ctxLookupInductiveDef ctx' name
+-- ctxLookupInductiveDef (CtxInductiveDef def ctx') name =
+--     if name == inductiveDefName def then Just def else ctxLookupInductiveDef ctx' name
 
-type Environment = [(Name, Val)]
+inductiveDefLookupCtor :: InductiveDef -> String -> Maybe InductiveCtor
+inductiveDefLookupCtor def name =
+  find (\ctor -> ctorName ctor == name) (inductiveCtors def) 
+
+ctxLookupCtor :: Ctx -> String -> Maybe (InductiveDef, InductiveCtor)
+ctxLookupCtor (CtxEmpty) _ = Nothing
+ctxLookupCtor (CtxDef n t _ ctx') name =
+    ctxLookupCtor ctx' name
+ctxLookupCtor (CtxBind n t ctx') name =
+    ctxLookupCtor ctx' name
+ctxLookupCtor (CtxInductiveDef def ctx') name =
+    case inductiveDefLookupCtor def name of 
+      Just ctor -> Just (def, ctor) 
+      Nothing -> ctxLookupCtor ctx' name
+
+type Environment = ([InductiveDef], [(Name, Val)])
 ctxEnv :: Ctx -> Environment
-ctxEnv CtxEmpty = []
-ctxEnv (CtxDef n t v ctx') = (n,v):ctxEnv ctx'
-ctxEnv (CtxBind n t ctx') = (n, NEU t (Nvar n)):ctxEnv ctx'
-ctxEnv (CtxInductiveDef ind ctx') = ctxEnv ctx'
+ctxEnv CtxEmpty = ([], [])
+ctxEnv (CtxDef n t v ctx') = 
+    let (inds, vals) = ctxEnv ctx'
+    in (inds, (n,v):vals)
+ctxEnv (CtxBind n t ctx') = 
+  let (inds, vals) = ctxEnv ctx'
+  in (inds, (n, NEU t (Nvar n)):vals)
+ctxEnv (CtxInductiveDef ind ctx') = 
+  let (inds, vals) = ctxEnv ctx'
+  in (ind:inds, vals)
+
+envLookupCtor_ :: Environment -> String -> Maybe (InductiveDef, InductiveCtor)
+envLookupCtor_ ([], _) name = Nothing 
+envLookupCtor_ (ind:inds, _) name = 
+ case find (\ctor -> ctorName ctor == name) (inductiveCtors ind) of 
+   Just ctor -> Just (ind, ctor)
+   Nothing -> envLookupCtor_ (inds, []) name 
+
+envLookupCtor :: Environment -> String -> Either Error  (InductiveDef, InductiveCtor)
+envLookupCtor env name =
+  case envLookupCtor_ env name of 
+    Just (def, ctor) -> Right (def, ctor)
+    Nothing -> Left $ Error dummySpan $ "unknown ctor: '" <> name <> "'"
 
 ctxExtend :: Ctx -> Name -> TYPE -> Ctx
 ctxExtend ctx name ty = CtxBind name ty ctx
@@ -573,7 +626,8 @@ ctxExtend ctx name ty = CtxBind name ty ctx
 -- | evaluate closure, instantiating bound variable with v
 valOfClosure :: Closure -> Val -> Either Error Val
 valOfClosure (ClosureShallow x f) v = f v
-valOfClosure (ClosureDeep env x body) v = val ((x,v):env) body
+valOfClosure (ClosureDeep (inds, vals) x body) v = 
+  val (inds, (x,v):vals) body
 
 val :: Environment -> Exp -> Either Error Val
 val env (Eannotate t e) = val env e
@@ -628,19 +682,32 @@ val env (Eindabsurd etarget emotive) = do
 
 val env (Eatom) = return $ ATOM
 val env (Equote e) = return $ QUOTE e
-val env (Eident n) =
-  case lookup n env of
+val (inds, vals) (Eident n) =
+  case lookup n vals of
     Just v -> Right v
     Nothing -> Left $ Error dummySpan $ "unknown variable |" <> n <> "|"
 val env (Eap f x) = do
     vf <- val env f
     vx <- val env x
     doAp vf vx
--- val env e = Left $ Error dummySpan $ "unknown expression for val: |" <> show e <> "|"
+val env (Eind name args) = do 
+    args <- forM args (val env)
+    return $ IND_TY name args
+val env (Ector name args) = do 
+        -- TODO, FIXME: this is janky, we should not be looking stuff up here.
+    (inddef, ctor) <- envLookupCtor env name
+    vargs <- forM (zip args (ctorParamTele ctor))
+      (\(arg, (paramname, paramty)) -> do 
+        vty <- val env paramty
+        varg <- val env arg
+        pure (vty, varg))
+    return $ CTOR name vargs
+val env e = 
+  Left $ Error dummySpan $ "unknown expression for val: |" <> show e <> "|"
 
 doAp :: Val -> Val -> Either Error Val
 doAp (LAM c) arg = valOfClosure c arg
--- | why is PI a NEU? Is it because it can only occur as a TYPE of something?
+-- | why is PI a NEU? Is it becausindse it can only occur as a TYPE of something?
 doAp (NEU (PI ti toclosure) piInhabitantv) arg = do
   to <- valOfClosure toclosure arg
   return $ NEU to (Nap piInhabitantv (TY_VAL ti arg))
@@ -724,6 +791,14 @@ ctxNames (CtxDef n t v ctx')  = n:ctxNames ctx'
 ctxFresh :: Ctx -> Name -> Name
 ctxFresh ctx name = fresh (ctxNames ctx) name
 
+-- General purpose loop combinator.
+loopM :: Monad m => [v] -> s -> (v -> s -> m (o, s)) -> m ([o], s)
+loopM [] s f = return ([], s)
+loopM (v:vs) s f = do  
+   (o, s) <- f v s 
+   (os, s) <- loopM vs s f 
+   return (o:os, s) 
+
 readbackVal :: Ctx -> TYPE -> Val -> Either Error Exp
 
 -- | NAT
@@ -785,8 +860,18 @@ readbackVal ctx t1 (NEU t2 ne) = readbackNeutral ctx ne
 -- | Inconsistent theory? x(
 -- How to exhibit inconsistence given Univ: Univ?
 readbackVal ctx UNIV UNIV = return $ Euniv
+readbackVal ctx (IND_TY tyname tyargs) (CTOR ctorname ctorargs) = do 
+  -- TODO,FIXME: interesting, I need to build the types!
+  -- TODO,FIXME: this needs to take the telescope into account?
+  -- TODO,FIXME: so this needs to extend the ctx?
+  (argsb, ctx) <- loopM ctorargs ctx (\(ty, arg) ctx -> do 
+      argb <- readbackVal ctx ty arg
+      return (argb, ctx)
+    )
+  return $ Ector ctorname argsb 
+
 readbackVal ctx t v =
-    Left $ Error dummySpan $ "unknown readback |" <> show v <>  " :: " <> show t <> "|"
+    Left $ Error dummySpan $ "unknown readback '" <> show v <>  "' :: '" <> show t <> "'"
 
 -- | Read back a neutral expression as syntax.
 -- | users are:
@@ -999,6 +1084,18 @@ synth ctx (Eident name) =
           return $ Eannotate te (Eident name)
       Nothing -> Left $ Error dummySpan $ "unknown variable |" <> name <> "|"
 
+synth ctx (Ector name args) = 
+    case ctxLookupCtor ctx name of 
+      Just (def, ctor) -> do 
+        -- FIXME,TODO: instantiate `ctorParamTele with args`, and then
+        -- perform capture avoiding substitution into ixs.
+        -- FIXME,TODO: type check the telescope!
+        let ixs = ctorIndexExps ctor 
+        let ty = (Eind (ctorParentName ctor) ixs)
+        return $ (Eannotate ty (Ector name args))
+      Nothing -> Left $ Error dummySpan $ "unknown constructor |" <> name <> "|"
+-- synth ctx (Eind name ixs) = do
+--  TODO.FIXME: implement Eind type synthesis.
 synth ctx e =
     Left $ Error dummySpan $  "cannot synthesize a type for expression |" <> show e <> "|"
 
