@@ -2,6 +2,7 @@
 -- More of the same =) 
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DataKinds #-}
 import Prelude hiding(EQ)
 import System.Environment
 import System.Exit
@@ -303,6 +304,15 @@ elaborateExp e = do
     "λ" -> do
       ((), x, body) <- tuple3f astignore atom elaborateExp e
       return $ Elam x body
+
+    "l*" -> do -- lambda star
+        -- (l* [(a nat) b (c nat)] ety e)
+        ((), args, ety, e) <- tuple4f astignore tuple elaborateExp elaborateExp e
+        (body, _) <- foldM (\(body, bodyty) arg -> do
+            (argname, argty) <- tuple2f atom elaborateExp arg
+            let ty = Epi argname argty bodyty
+            return (Eannotate ty (Elam argname body), ty)) (e, ety) (reverse args)
+        return body
     "$" -> do
       ((), f, x) <- tuple3f astignore elaborateExp elaborateExp e
       return $ Eap f x
@@ -315,6 +325,13 @@ elaborateExp e = do
     "+1" -> do
       ((), e) <- tuple2f astignore elaborateExp e
       return $ Eadd1 e
+    "->" -> do
+      ((), ti, to) <- tuple3f astignore elaborateExp elaborateExp e
+      return $ Epi "_" ti to
+    "Π" -> do
+      ((), (name, ti), to) <- tuple3f astignore elaborateBinder elaborateExp e
+      return $ Epi name ti to
+
     "→" -> do
       ((), ti, to) <- tuple3f astignore elaborateExp elaborateExp e
       return $ Epi "_" ti to
@@ -324,12 +341,12 @@ elaborateExp e = do
     --     return $ Eindnat target motive base step
     "ind" -> do -- (ind nat : [<indexes>])
       name <- atomget <$> at 1 e
-      at 2 e >>= atomString ":"
-      indexes <- at 3 e >>= tupleFor elaborateExp
+      indexes <- at 2 e >>= tupleFor elaborateExp
       return $ Eind name indexes
     "ctor" -> do -- (ctor name (<args>))
       name <- at 1 e >>= atom
-      args <- at 2 e >>= tupleFor elaborateExp
+      -- args <- at 2 e >>= tupleFor elaborateExp
+      let args = []
       return $ Ector name args
     "elim" -> do
       name <- at 1 e >>= atom
@@ -352,40 +369,31 @@ elaborateTelescope ast = tupleFor elaborateBinder ast
 
 
 -- | elaborate the constructor of an inductive
---   (zero : [])
---   (s [(x nat) (y nat)] : []))
+--   (zero [])
+--   (s [(x nat) (y nat)] []))
 elaborateInductiveCtor :: String -> AST -> Either Error InductiveCtor
 elaborateInductiveCtor parentName ast = do
   name <- at 0 ast >>= atom
   args <- at 1 ast >>= elaborateTelescope
-  at 2 ast >>= atomString ":"
-  ixs <- at 3 ast >>= tupleFor elaborateExp
+  ixs <- at 2 ast >>= tupleFor elaborateExp
   return $ InductiveCtor {
     ctorParentName = parentName
     , ctorName = name
     , ctorArgTele = args
     , ctorIndexTele = ixs
-  } where
-    notColon :: AST -> Bool
-    notColon ast =
-        case atom ast of
-          Left _ -> False
-          Right str -> str /= ":"
-
-
+  } 
 
 {-
-(ind nat : []
-  (zero : [])
-  (s [(x nat) (y nat)] : []))
+(ind nat []
+  (zero [])
+  (s [(x nat) (y nat)] []))
 We get the AST from nat...
 -}
 elaborateInductiveDef :: AST -> Either Error InductiveDef
 elaborateInductiveDef ast = do
   name <- at 1 ast >>= atom
-  at 2 ast >>= atomString ":"
-  indexes <- at 3 ast >>= elaborateTelescope
-  ctors <- at 4 ast >>= tupleFor (elaborateInductiveCtor name)
+  indexes <- at 2 ast >>= elaborateTelescope
+  ctors <- at 3 ast >>= tupleFor (elaborateInductiveCtor name)
   return $ InductiveDef {
     inductiveDefName = name
     , inductiveIndexTele = indexes
@@ -397,8 +405,8 @@ elaborateToplevel t = do
   head  <- tuplehd atom t
   case head of
     "def" -> do
-      (_def, name, exp) <- tuple3f atom atom elaborateExp t
-      return ([], [(name, exp)])
+      ((), name, e) <- tuple3f astignore atom elaborateExp t
+      return ([], [(name, e)])
     "ind" -> do
       ind <- elaborateInductiveDef t
       return $ ([ind], [])
@@ -566,7 +574,6 @@ ctxExtend ctx name ty = CtxBind name ty ctx
 valOfClosure :: Closure -> Val -> Either Error Val
 valOfClosure (ClosureShallow x f) v = f v
 valOfClosure (ClosureDeep env x body) v = val ((x,v):env) body
-
 
 val :: Environment -> Exp -> Either Error Val
 val env (Eannotate t e) = val env e
@@ -1091,14 +1098,13 @@ convert ctx t v1 v2 = do
 data Error = Error {
   errSpan :: Span
   , errString :: String
-}
+} deriving (Show)
 
 dummyLoc :: Loc
 dummyLoc = Loc 0 1 0
 
 dummySpan :: Span
 dummySpan = Span dummyLoc dummyLoc
-
 
 showLoc :: Loc -> String
 showLoc (Loc ix line col) = show line <> ":" <> show col
@@ -1270,6 +1276,10 @@ at ix (Tuple span _ xs) =
     ". Found tuple of smaller length: "  ++ show (length xs)
   else return (xs !! ix)
 
+isatom :: AST -> Bool
+isatom (Tuple _ _ _) = False
+isatom (Atom _ _) = True
+
 atom :: AST -> Either Error String
 atom t@(Tuple span _ xs) =
   Left $ Error span $
@@ -1285,11 +1295,16 @@ atomString s (Atom span a) =
   then return ()
   else Left $ Error span $ "expected atom '" <> s <> "', but found atom '" <> a <> "'"
 
-tuple :: Int -> AST -> Either Error [AST]
-tuple n (Atom span atom) =
+tuple :: AST -> Either Error [AST]
+tuple (Atom span atom) =
+  Left $ Error span $ "expected tuple. found atom " ++ show atom
+tuple (Tuple span _ xs) = Right xs
+
+tupleLen :: Int -> AST -> Either Error [AST]
+tupleLen n (Atom span atom) =
   Left $ Error span $ "expected tuple of length " ++ show n ++
          ". found atom " ++ show atom
-tuple n ast@(Tuple span _ xs) =
+tupleLen n ast@(Tuple span _ xs) =
  if length xs /= n
  then Left $ Error span $
     "expected tuple of length " ++ show n ++
@@ -1299,39 +1314,53 @@ tuple n ast@(Tuple span _ xs) =
 
 tuple4 :: AST -> Either Error (AST, AST, AST, AST)
 tuple4 ast = do
-    xs <- tuple 4 ast
+    xs <- tupleLen 4 ast
     return (xs !! 0, xs !! 1, xs !! 2, xs !! 3)
 
--- | functional version of tuple 2
+-- | functional version of tupleLen 2
 tuple2f :: (AST -> Either Error a0)
     -> (AST -> Either Error a1)
     -> AST -> Either Error (a0, a1)
 tuple2f f0 f1 ast = do
-    xs <- tuple 2 ast
+    xs <- tupleLen 2 ast
     a0 <- f0 (xs !! 0)
     a1 <- f1 (xs !! 1)
     return (a0, a1)
 
--- | functional version of tuple 3
 tuple3f :: (AST -> Either Error a0)
     -> (AST -> Either Error a1)
     -> (AST -> Either Error a2)
     -> AST -> Either Error (a0, a1, a2)
 tuple3f f0 f1 f2 ast = do
-    xs <- tuple 3 ast
+    xs <- tupleLen 3 ast
     a0 <- f0 (xs !! 0)
     a1 <- f1 (xs !! 1)
     a2 <- f2 (xs !! 2)
     return (a0, a1, a2)
 
--- | functional version of tuple 4
+
+-- (p1 p2 ... pn vararg* s1 s2 ... sn)
+destructureTuple :: (Int, Int) -> AST -> Either Error ([AST], [AST], [AST])
+-- | functional version of tupleLen 3
+destructureTuple pat (Atom span a) =
+    Left $ Error span $ "expected '" <> show pat <> "', found atom '" <> a <> "'"
+destructureTuple pat@(nprefix, nsuffix) t@(Tuple span delim xs) = do
+  if length xs < nprefix + nsuffix
+  then Left $ Error span $ "expected '" <> show pat <> "', found tup;e '" <> show t <> "'"
+  else return (prefix, mid, suffix)
+  where
+    prefix = take nprefix xs
+    suffix = take nsuffix . reverse $ xs
+    mid = reverse . drop nsuffix . reverse . drop nprefix $ xs
+
+-- | functional version of tupleLen 4
 tuple4f :: (AST -> Either Error a0)
     -> (AST -> Either Error a1)
     -> (AST -> Either Error a2)
     -> (AST -> Either Error a3)
     -> AST -> Either Error (a0, a1, a2, a3)
 tuple4f f0 f1 f2 f3 ast = do
-    xs <- tuple 4 ast
+    xs <- tupleLen 4 ast
     a0 <- f0 (xs !! 0)
     a1 <- f1 (xs !! 1)
     a2 <- f2 (xs !! 2)
@@ -1345,7 +1374,7 @@ tuple5f :: (AST -> Either Error a0)
     -> (AST -> Either Error a4)
     -> AST -> Either Error (a0, a1, a2, a3, a4)
 tuple5f f0 f1 f2 f3 f4 ast = do
-    xs <- tuple 5 ast
+    xs <- tupleLen 5 ast
     a0 <- f0 (xs !! 0)
     a1 <- f1 (xs !! 1)
     a2 <- f2 (xs !! 2)
