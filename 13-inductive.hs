@@ -114,6 +114,7 @@ type CtorName = String
 
 -- A sequence of binders
 type Telescope = [(Name, Type)]
+type TELE_TY_VAL = [(Name, TYPE, Val)] -- semantic domain value that corresponds to a telescope.
 
 -- | Definition of an InductiveDef type.
 -- https://hal.inria.fr/hal-01094195/document
@@ -508,8 +509,13 @@ data Val =
     UNIV |
     -- vv CTOR: types of the arguments, and their values. do I need a closure? (see SIGMA!)
     -- vv types are necessary for reading back!
-    CTOR String [(Val, Val)] |  
-    IND_TY String [Val] | -- do I also need the indexes???
+    -- Conceptually, a constructor is "just" an uninterpreted function application, so it should mimic NEU
+    -- Try to mimic 'NAp'
+    -- Instead of the TYPE, we store the name of the constructor, and the values.
+    -- Note that for it to mimic neutral function application, it needs to be TY_VAL, since readback needs to know the type!
+    -- vv HACK.FIXME,TODO: Check the relationship between TELE_TY_VAL and Environment. I am pretty sure that TELE_TY_VAL is an environment.
+    CTOR String TELE_TY_VAL |
+    IND_TY String TELE_TY_VAL | -- do I also need the indexes? Also, should these also be TY_VAL?
     NEU TYPE Neutral -- NEU type neutral data
     deriving(Show)
 
@@ -606,6 +612,13 @@ ctxEnv (CtxInductiveDef ind ctx') =
   let (inds, vals) = ctxEnv ctx'
   in (ind:inds, vals)
 
+envLookupInductiveDef :: Environment -> String -> Either Error InductiveDef
+envLookupInductiveDef ([], _) name = Left $ Error dummySpan $ "unknown inductive definition '" <> name <> "'" 
+envLookupInductiveDef (ind:inds, _) name = 
+  if name == inductiveDefName ind 
+  then Right $ ind
+  else envLookupInductiveDef (inds, []) name
+
 envLookupCtor_ :: Environment -> String -> Maybe (InductiveDef, InductiveCtor)
 envLookupCtor_ ([], _) name = Nothing 
 envLookupCtor_ (ind:inds, _) name = 
@@ -622,12 +635,28 @@ envLookupCtor env name =
 ctxExtend :: Ctx -> Name -> TYPE -> Ctx
 ctxExtend ctx name ty = CtxBind name ty ctx
 
+
+envExtend :: Environment -> Name -> Val -> Environment
+envExtend (inds, vals) x v = (inds, (x,v):vals)
+
+
+
 -- 7.3.1
 -- | evaluate closure, instantiating bound variable with v
 valOfClosure :: Closure -> Val -> Either Error Val
 valOfClosure (ClosureShallow x f) v = f v
-valOfClosure (ClosureDeep (inds, vals) x body) v = 
-  val (inds, (x,v):vals) body
+valOfClosure (ClosureDeep env x body) v =
+  val (envExtend env x v) body
+
+
+-- evaluate a telescope, returning the sequence of evaluated binders
+-- and the final environment.
+valOfTele :: Environment -> [(Name, Exp)] -> Either Error ([(Name, Val)], Environment)
+valOfTele env [] = return ([], env)
+valOfTele env ((name, e):teles) = do
+  v <- val env e
+  valOfTele (envExtend env name v) teles
+
 
 val :: Environment -> Exp -> Either Error Val
 val env (Eannotate t e) = val env e
@@ -690,17 +719,22 @@ val env (Eap f x) = do
     vf <- val env f
     vx <- val env x
     doAp vf vx
-val env (Eind name args) = do 
-    args <- forM args (val env)
-    return $ IND_TY name args
+val env (Eind name ixexps) = do
+    inddef <- envLookupInductiveDef env name
+    (ixvals, env') <- loopM (zip (inductiveIndexTele inddef) ixexps) env $ \((name, te), ve) env -> do
+        v <- val env ve
+        let env' = envExtend env name v
+        t <- val env' te 
+        pure ((name, t, v), env')
+    return $ IND_TY name ixvals
 val env (Ector name args) = do 
         -- TODO, FIXME: this is janky, we should not be looking stuff up here.
     (inddef, ctor) <- envLookupCtor env name
     vargs <- forM (zip args (ctorParamTele ctor))
-      (\(arg, (paramname, paramty)) -> do 
+      (\(arg, (paramname, paramty)) -> do
         vty <- val env paramty
         varg <- val env arg
-        pure (vty, varg))
+        pure (paramname, vty, varg))
     return $ CTOR name vargs
 val env e = 
   Left $ Error dummySpan $ "unknown expression for val: |" <> show e <> "|"
@@ -799,6 +833,7 @@ loopM (v:vs) s f = do
    (os, s) <- loopM vs s f 
    return (o:os, s) 
 
+
 readbackVal :: Ctx -> TYPE -> Val -> Either Error Exp
 
 -- | NAT
@@ -860,14 +895,15 @@ readbackVal ctx t1 (NEU t2 ne) = readbackNeutral ctx ne
 -- | Inconsistent theory? x(
 -- How to exhibit inconsistence given Univ: Univ?
 readbackVal ctx UNIV UNIV = return $ Euniv
-readbackVal ctx (IND_TY tyname tyargs) (CTOR ctorname ctorargs) = do 
+-- v (IND_TY vec 1) (vsucc vzero)
+readbackVal ctx (IND_TY tyname indexNameKindTypeList) (CTOR ctorname ctorArgList) = do
   -- TODO,FIXME: interesting, I need to build the types!
   -- TODO,FIXME: this needs to take the telescope into account?
   -- TODO,FIXME: so this needs to extend the ctx?
-  (argsb, ctx) <- loopM ctorargs ctx (\(ty, arg) ctx -> do 
+  let Just (indty, ctor) = ctxLookupCtor ctx ctorname
+  (argsb, ctx) <- loopM ctorArgList ctx $ \(name, ty, arg) ctx -> do
       argb <- readbackVal ctx ty arg
       return (argb, ctx)
-    )
   return $ Ector ctorname argsb 
 
 readbackVal ctx t v =
